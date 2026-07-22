@@ -1,0 +1,138 @@
+// datasource and generator setup
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// 1. ENUMS
+// ==========================================
+enum Role {
+  ADMIN
+  SELLER
+}
+
+// ==========================================
+// 2. MODELS
+// ==========================================
+
+// 1. Country Model
+model Country {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  code      String?  @unique // e.g. "BD", "US", "IN"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branches Branch[]
+
+  @@map("countries")
+}
+
+// 2. Branch Model
+model Branch {
+  id        String   @id @default(uuid())
+  name      String
+  code      String? // e.g. "DHK-01"
+  countryId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  country Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  users   User[]
+
+  @@map("branches")
+}
+
+// 3. User Model (Admin / Seller)
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role     @default(SELLER)
+  branchId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  branch           Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  assignedProducts UserProduct[]
+  refreshTokens    RefreshToken[]
+  sales            Sale[]
+
+  @@map("users")
+}
+
+// 4. Global Master Product Model
+model Product {
+  id          String   @id @default(uuid())
+  title       String
+  sku         String   @unique // Unique Product Stock Keeping Unit
+  description String?
+  price       Float    @default(0.0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  assignedUsers UserProduct[]
+  sales         Sale[]
+
+  @@map("products")
+}
+
+// 5. Junction Table: User Product Inventory (Junction model with extra fields)
+model UserProduct {
+  id        String   @id @default(uuid())
+  userId    String
+  productId String
+  quantity  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@map("user_products")
+}
+
+// 6. Sale — recorded when a seller sells units (drives dashboard revenue)
+model Sale {
+  id            String   @id @default(uuid())
+  userId        String
+  productId     String
+  userProductId String?
+  quantity      Int
+  unitPrice     Float
+  revenue       Float
+  createdAt     DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([productId])
+  @@index([createdAt])
+  @@map("sales")
+}
+
+// 7. Refresh Token (auth session storage for rotation / logout)
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
