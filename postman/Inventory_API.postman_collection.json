@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     "name": "Inventory Management API",
-    "description": "Multi-Country & Multi-Branch Inventory Management System.\n\n1. Run Auth → Login (Admin)\n2. accessToken is saved automatically\n3. Use other folders as needed",
+    "description": "Multi-Country & Multi-Branch Inventory Management System (Express + MongoDB/Mongoose).\n\n**Quick start**\n1. Run Auth → Login (Admin) — tokens are saved automatically\n2. Create Country → Branch → Seller → Product → Assign inventory\n3. Record sales via Inventory → Record Sale\n\n**Latest features**\n- Auth: update profile (`PATCH /auth/me`), change password (`PATCH /auth/password`)\n- Products: optional image upload via `multipart/form-data` (`image` field)\n- Inventory: record sale (`POST /inventory/:id/sell`)\n- Stack: MongoDB (UUID string ids) — same API contract as before",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -29,7 +29,13 @@
             "auth": { "type": "noauth" },
             "method": "GET",
             "header": [],
-            "url": { "raw": "http://localhost:5000/health", "protocol": "http", "host": ["localhost"], "port": "5000", "path": ["health"] }
+            "url": {
+              "raw": "http://localhost:5000/health",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5000",
+              "path": ["health"]
+            }
           }
         }
       ]
@@ -141,6 +147,32 @@
             "header": [],
             "url": "{{baseUrl}}/auth/me"
           }
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"System Admin\",\n  \"email\": \"admin@inventory.com\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/me",
+            "description": "Update own name and/or email. Does not change role or branch."
+          }
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currentPassword\": \"Admin@12345\",\n  \"newPassword\": \"Admin@12345\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/password",
+            "description": "Changes password and revokes refresh tokens. Client should re-login afterward."
+          }
         }
       ]
     },
@@ -231,7 +263,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Nairobi Branch\",\n  \"code\": \"NBO-01\",\n  \"countryId\": \"{{countryId}}\"\n}"
+              "raw": "{\n  \"name\": \"Nairobi Central\",\n  \"code\": \"NBO-01\",\n  \"countryId\": \"{{countryId}}\"\n}"
             },
             "url": "{{baseUrl}}/branches"
           }
@@ -336,7 +368,8 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/users/{{userId}}"
+            "url": "{{baseUrl}}/users/{{userId}}",
+            "description": "Admin: any user. Seller: own id only. Pair with GET /inventory/user/:userId for assigned products."
           }
         },
         {
@@ -365,7 +398,7 @@
       "name": "Products",
       "item": [
         {
-          "name": "Create Product",
+          "name": "Create Product (JSON)",
           "event": [
             {
               "listen": "test",
@@ -385,7 +418,44 @@
               "mode": "raw",
               "raw": "{\n  \"title\": \"Vitamin C Brightening Serum\",\n  \"sku\": \"SKN-VITC-001\",\n  \"description\": \"Antioxidant serum for dull skin\",\n  \"price\": 19.99\n}"
             },
-            "url": "{{baseUrl}}/products"
+            "url": "{{baseUrl}}/products",
+            "description": "Admin only. JSON body without image."
+          }
+        },
+        {
+          "name": "Create Product (with Image)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json?.data?.id) pm.collectionVariables.set('productId', json.data.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "title", "value": "Hydrating Face Cream", "type": "text" },
+                { "key": "sku", "value": "SKN-CRM-002", "type": "text" },
+                { "key": "description", "value": "Daily moisturizer", "type": "text" },
+                { "key": "price", "value": "24.50", "type": "text" },
+                {
+                  "key": "image",
+                  "type": "file",
+                  "src": [],
+                  "description": "Select a jpg/png/webp file (max ~2MB)"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/products",
+            "description": "Admin only. multipart/form-data. Field `image` is optional. Allowed: jpg, jpeg, png, webp."
           }
         },
         {
@@ -404,7 +474,8 @@
                 { "key": "minPrice", "value": "0", "disabled": true },
                 { "key": "maxPrice", "value": "50", "disabled": true }
               ]
-            }
+            },
+            "description": "Admin: full catalog. Seller: assigned products only (includes quantity, assignmentId)."
           }
         },
         {
@@ -416,7 +487,7 @@
           }
         },
         {
-          "name": "Update Product",
+          "name": "Update Product (JSON)",
           "request": {
             "method": "PATCH",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
@@ -428,11 +499,52 @@
           }
         },
         {
+          "name": "Update Product (replace Image)",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "title", "value": "Hydrating Face Cream", "type": "text", "disabled": true },
+                { "key": "price", "value": "24.50", "type": "text", "disabled": true },
+                {
+                  "key": "image",
+                  "type": "file",
+                  "src": [],
+                  "description": "New image replaces the previous one on disk"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/products/{{productId}}"
+          }
+        },
+        {
+          "name": "Update Product (remove Image)",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "removeImage",
+                  "value": "true",
+                  "type": "text",
+                  "description": "Clears imageUrl and deletes the stored file"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/products/{{productId}}"
+          }
+        },
+        {
           "name": "Delete Product",
           "request": {
             "method": "DELETE",
             "header": [],
-            "url": "{{baseUrl}}/products/{{productId}}"
+            "url": "{{baseUrl}}/products/{{productId}}",
+            "description": "Also deletes the product image file if present."
           }
         }
       ]
@@ -461,7 +573,8 @@
               "mode": "raw",
               "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"productId\": \"{{productId}}\",\n  \"quantity\": 50\n}"
             },
-            "url": "{{baseUrl}}/inventory/assign"
+            "url": "{{baseUrl}}/inventory/assign",
+            "description": "Admin only. Assigns a catalog product to a SELLER with starting quantity."
           }
         },
         {
@@ -498,7 +611,8 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/inventory/user/{{userId}}"
+            "url": "{{baseUrl}}/inventory/user/{{userId}}",
+            "description": "Admin: any user. Seller: own userId only. Returns items + summary."
           }
         },
         {
@@ -534,6 +648,19 @@
           }
         },
         {
+          "name": "Record Sale",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 2\n}"
+            },
+            "url": "{{baseUrl}}/inventory/{{inventoryId}}/sell",
+            "description": "Admin or owning seller. Decreases stock and creates a Sale (revenue = qty × product price). Fails if quantity exceeds available stock."
+          }
+        },
+        {
           "name": "Unassign Product",
           "request": {
             "method": "DELETE",
@@ -551,7 +678,8 @@
           "request": {
             "method": "GET",
             "header": [],
-            "url": "{{baseUrl}}/dashboard/overview"
+            "url": "{{baseUrl}}/dashboard/overview",
+            "description": "Role-aware. Admin: global totals + countryBreakdown + recentSales. Seller: own stock/revenue summary."
           }
         }
       ]

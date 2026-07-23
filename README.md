@@ -69,3 +69,9 @@ Request → Route (middleware) → Controller → Service → Repository → Mon
 - Document IDs remain **UUID strings** (not ObjectIds) so the existing frontend validators keep working.
 - Cascading deletes (country → branches, user/product → inventory/sales) are handled in repositories.
 - Stock sales use atomic `findOneAndUpdate` with a quantity guard (no replica-set transaction required).
+
+---
+
+## User workflows
+
+Admin and Seller day-to-day flows are documented in **[../WORKFLOWS.md](../WORKFLOWS.md)**.
