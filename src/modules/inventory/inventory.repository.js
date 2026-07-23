@@ -1,149 +1,256 @@
-import prisma from '../../config/prisma.js';
+import { UserProduct } from '../../models/UserProduct.js';
+import { User } from '../../models/User.js';
+import { Product } from '../../models/Product.js';
+import { Branch } from '../../models/Branch.js';
+import { Sale } from '../../models/Sale.js';
+import { toApi } from '../../utils/mongooseHelpers.js';
+import { containsInsensitive } from '../../utils/queryHelpers.js';
 
-const inventoryInclude = {
-  product: true,
-  user: {
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      branchId: true,
-      branch: {
-        include: { country: true },
-      },
+const inventoryPopulate = [
+  { path: 'productId' },
+  {
+    path: 'userId',
+    select: 'name email role branchId',
+    populate: {
+      path: 'branchId',
+      populate: { path: 'countryId' },
     },
   },
+];
+
+const mapInventoryRow = (doc) => {
+  if (!doc) return null;
+  const json = toApi(doc);
+
+  const product =
+    json.productId && typeof json.productId === 'object' ? json.productId : null;
+  const user = json.userId && typeof json.userId === 'object' ? json.userId : null;
+
+  json.productId = product?.id ?? json.productId;
+  json.userId = user?.id ?? json.userId;
+  json.product = product;
+
+  if (user) {
+    const branch =
+      user.branchId && typeof user.branchId === 'object' ? user.branchId : null;
+    const country =
+      branch?.countryId && typeof branch.countryId === 'object'
+        ? branch.countryId
+        : null;
+
+    json.user = {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      branchId: branch?.id ?? user.branchId ?? null,
+      branch: branch
+        ? {
+            id: branch.id,
+            name: branch.name,
+            code: branch.code,
+            countryId: country?.id ?? branch.countryId ?? null,
+            createdAt: branch.createdAt,
+            updatedAt: branch.updatedAt,
+            country,
+          }
+        : null,
+    };
+  } else {
+    json.user = null;
+  }
+
+  return json;
+};
+
+const mapSale = (doc) => {
+  if (!doc) return null;
+  const json = toApi(doc);
+  const product =
+    json.productId && typeof json.productId === 'object' ? json.productId : null;
+  const user = json.userId && typeof json.userId === 'object' ? json.userId : null;
+
+  json.productId = product?.id ?? json.productId;
+  json.userId = user?.id ?? json.userId;
+  json.product = product;
+  json.user = user
+    ? {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        branchId: user.branchId ?? null,
+      }
+    : null;
+  return json;
 };
 
 const inventoryRepository = {
-  assign({ userId, productId, quantity }) {
-    return prisma.userProduct.create({
-      data: { userId, productId, quantity },
-      include: inventoryInclude,
-    });
+  async assign({ userId, productId, quantity }) {
+    const row = await UserProduct.create({ userId, productId, quantity });
+    const populated = await UserProduct.findById(row._id).populate(inventoryPopulate);
+    return mapInventoryRow(populated);
   },
 
-  upsertAssign({ userId, productId, quantity }) {
-    return prisma.userProduct.upsert({
-      where: { userId_productId: { userId, productId } },
-      create: { userId, productId, quantity },
-      update: { quantity },
-      include: inventoryInclude,
-    });
+  async findById(id) {
+    const row = await UserProduct.findById(id).populate(inventoryPopulate);
+    return mapInventoryRow(row);
   },
 
-  findById(id) {
-    return prisma.userProduct.findUnique({
-      where: { id },
-      include: inventoryInclude,
-    });
+  async findByUserAndProduct(userId, productId) {
+    const row = await UserProduct.findOne({ userId, productId }).populate(
+      inventoryPopulate
+    );
+    return mapInventoryRow(row);
   },
 
-  findByUserAndProduct(userId, productId) {
-    return prisma.userProduct.findUnique({
-      where: { userId_productId: { userId, productId } },
-      include: inventoryInclude,
-    });
-  },
+  async findMany({ filters = {}, skip = 0, take = 20 }) {
+    const query = {};
 
-  async findMany({ where, skip, take }) {
-    const [items, total] = await Promise.all([
-      prisma.userProduct.findMany({
-        where,
-        include: inventoryInclude,
-        skip,
-        take,
-        orderBy: { updatedAt: 'desc' },
-      }),
-      prisma.userProduct.count({ where }),
+    if (filters.userId) query.userId = filters.userId;
+    if (filters.productId) query.productId = filters.productId;
+
+    let userIdsFilter = null;
+
+    if (filters.branchId || filters.countryId) {
+      let branchQuery = {};
+      if (filters.branchId) branchQuery._id = filters.branchId;
+      if (filters.countryId) {
+        branchQuery.countryId = filters.countryId;
+      }
+      const branchIds = await Branch.find(branchQuery).distinct('_id');
+      userIdsFilter = await User.find({ branchId: { $in: branchIds } }).distinct('_id');
+      query.userId = { $in: userIdsFilter };
+    }
+
+    if (filters.search) {
+      const [productIds, matchedUserIds] = await Promise.all([
+        Product.find({
+          $or: [
+            { title: containsInsensitive(filters.search) },
+            { sku: containsInsensitive(filters.search) },
+          ],
+        }).distinct('_id'),
+        User.find({
+          $or: [
+            { name: containsInsensitive(filters.search) },
+            { email: containsInsensitive(filters.search) },
+          ],
+        }).distinct('_id'),
+      ]);
+
+      const orClauses = [
+        { productId: { $in: productIds } },
+        { userId: { $in: matchedUserIds } },
+      ];
+
+      if (query.userId) {
+        query.$and = [{ userId: query.userId }, { $or: orClauses }];
+        delete query.userId;
+      } else {
+        query.$or = orClauses;
+      }
+    }
+
+    const [rows, total] = await Promise.all([
+      UserProduct.find(query)
+        .populate(inventoryPopulate)
+        .sort({ updatedAt: -1 })
+        .skip(skip)
+        .limit(take),
+      UserProduct.countDocuments(query),
     ]);
-    return { items, total };
+
+    return { items: rows.map(mapInventoryRow), total };
   },
 
-  findByUserId(userId) {
-    return prisma.userProduct.findMany({
-      where: { userId },
-      include: {
-        product: true,
-      },
-      orderBy: { updatedAt: 'desc' },
+  async findByUserId(userId) {
+    const rows = await UserProduct.find({ userId })
+      .populate({ path: 'productId' })
+      .sort({ updatedAt: -1 });
+
+    return rows.map((row) => {
+      const json = toApi(row);
+      const product =
+        json.productId && typeof json.productId === 'object' ? json.productId : null;
+      json.productId = product?.id ?? json.productId;
+      json.product = product;
+      return json;
     });
   },
 
-  updateQuantity(id, quantity) {
-    return prisma.userProduct.update({
-      where: { id },
-      data: { quantity },
-      include: inventoryInclude,
-    });
+  async updateQuantity(id, quantity) {
+    const row = await UserProduct.findByIdAndUpdate(
+      id,
+      { quantity },
+      { new: true }
+    ).populate(inventoryPopulate);
+    return mapInventoryRow(row);
   },
 
-  /**
-   * Atomically decrease stock and create a sale row (revenue = qty × unitPrice).
-   */
   async recordSale({ inventoryId, soldQuantity, unitPrice, userId, productId }) {
     const revenue = soldQuantity * unitPrice;
 
-    return prisma.$transaction(async (tx) => {
-      const current = await tx.userProduct.findUnique({ where: { id: inventoryId } });
-      if (!current) {
-        throw new Error('NOT_FOUND');
-      }
-      if (soldQuantity > current.quantity) {
-        throw new Error('INSUFFICIENT_STOCK');
-      }
+    const updated = await UserProduct.findOneAndUpdate(
+      { _id: inventoryId, quantity: { $gte: soldQuantity } },
+      { $inc: { quantity: -soldQuantity } },
+      { new: true }
+    );
 
-      const updated = await tx.userProduct.update({
-        where: { id: inventoryId },
-        data: { quantity: current.quantity - soldQuantity },
-        include: inventoryInclude,
-      });
+    if (!updated) {
+      const exists = await UserProduct.findById(inventoryId);
+      if (!exists) throw new Error('NOT_FOUND');
+      throw new Error('INSUFFICIENT_STOCK');
+    }
 
-      const sale = await tx.sale.create({
-        data: {
-          userId,
-          productId,
-          userProductId: inventoryId,
-          quantity: soldQuantity,
-          unitPrice,
-          revenue,
-        },
-        include: {
-          product: true,
-          user: {
-            select: { id: true, name: true, email: true, branchId: true },
-          },
-        },
-      });
+    const previousQuantity = updated.quantity + soldQuantity;
 
-      return {
-        inventory: updated,
-        sale,
-        previousQuantity: current.quantity,
-      };
+    const saleDoc = await Sale.create({
+      userId,
+      productId,
+      userProductId: inventoryId,
+      quantity: soldQuantity,
+      unitPrice,
+      revenue,
     });
+
+    const [inventory, sale] = await Promise.all([
+      UserProduct.findById(inventoryId).populate(inventoryPopulate),
+      Sale.findById(saleDoc._id)
+        .populate({ path: 'productId' })
+        .populate({ path: 'userId', select: 'name email branchId' }),
+    ]);
+
+    return {
+      inventory: mapInventoryRow(inventory),
+      sale: mapSale(sale),
+      previousQuantity,
+    };
   },
 
-  delete(id) {
-    return prisma.userProduct.delete({
-      where: { id },
-      include: inventoryInclude,
-    });
+  async delete(id) {
+    const row = await UserProduct.findById(id).populate(inventoryPopulate);
+    if (!row) return null;
+    const mapped = mapInventoryRow(row);
+    await UserProduct.deleteOne({ _id: id });
+    return mapped;
   },
 
-  userExists(userId) {
-    return prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, role: true, name: true, email: true, branchId: true },
-    });
+  async userExists(userId) {
+    const user = await User.findById(userId).select('name email role branchId');
+    if (!user) return null;
+    return {
+      id: user._id,
+      role: user.role,
+      name: user.name,
+      email: user.email,
+      branchId: user.branchId,
+    };
   },
 
-  productExists(productId) {
-    return prisma.product.findUnique({
-      where: { id: productId },
-      select: { id: true, title: true, sku: true },
-    });
+  async productExists(productId) {
+    const product = await Product.findById(productId).select('title sku');
+    if (!product) return null;
+    return { id: product._id, title: product.title, sku: product.sku };
   },
 };
 

@@ -1,7 +1,7 @@
 import { verifyAccessToken } from '../utils/jwt.js';
 import ApiError from '../utils/ApiError.js';
 import catchAsync from '../utils/catchAsync.js';
-import prisma from '../config/prisma.js';
+import { User } from '../models/User.js';
 
 /**
  * Verifies Bearer JWT and attaches req.user (id, email, role, branchId).
@@ -25,22 +25,18 @@ const authenticate = catchAsync(async (req, _res, next) => {
     throw ApiError.unauthorized('Invalid or expired access token');
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: decoded.sub },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      branchId: true,
-    },
-  });
-
+  const user = await User.findById(decoded.sub).select('name email role branchId');
   if (!user) {
     throw ApiError.unauthorized('User no longer exists');
   }
 
-  req.user = user;
+  req.user = {
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    branchId: user.branchId,
+  };
   next();
 });
 

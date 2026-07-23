@@ -36,21 +36,11 @@ const userService = {
     const { page, limit, role, branchId, countryId, search } = query;
     const skip = (page - 1) * limit;
 
-    const where = {
-      ...(role ? { role } : {}),
-      ...(branchId ? { branchId } : {}),
-      ...(countryId ? { branch: { countryId } } : {}),
-      ...(search
-        ? {
-            OR: [
-              { name: { contains: search, mode: 'insensitive' } },
-              { email: { contains: search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    };
-
-    const { users, total } = await userRepository.findMany({ where, skip, take: limit });
+    const { users, total } = await userRepository.findMany({
+      filters: { role, branchId, countryId, search },
+      skip,
+      take: limit,
+    });
 
     return {
       items: users,

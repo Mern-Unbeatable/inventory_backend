@@ -43,31 +43,8 @@ const inventoryService = {
     const { page, limit, countryId, branchId, userId, productId, search } = query;
     const skip = (page - 1) * limit;
 
-    const where = {
-      ...(userId ? { userId } : {}),
-      ...(productId ? { productId } : {}),
-      ...(branchId || countryId
-        ? {
-            user: {
-              ...(branchId ? { branchId } : {}),
-              ...(countryId ? { branch: { countryId } } : {}),
-            },
-          }
-        : {}),
-      ...(search
-        ? {
-            OR: [
-              { product: { title: { contains: search, mode: 'insensitive' } } },
-              { product: { sku: { contains: search, mode: 'insensitive' } } },
-              { user: { name: { contains: search, mode: 'insensitive' } } },
-              { user: { email: { contains: search, mode: 'insensitive' } } },
-            ],
-          }
-        : {}),
-    };
-
     const { items, total } = await inventoryRepository.findMany({
-      where,
+      filters: { countryId, branchId, userId, productId, search },
       skip,
       take: limit,
     });

@@ -2,7 +2,7 @@
 
 Multi-country / multi-branch inventory backend for a skincare export business.
 
-**Stack:** Node.js · Express · PostgreSQL · Prisma · JWT · Zod  
+**Stack:** Node.js · Express · MongoDB · Mongoose · JWT · Zod  
 **Architecture:** Feature modules with Route → Controller → Service → Repository
 
 ---
@@ -15,10 +15,10 @@ npm install
 
 # 2. Configure env
 cp .env.example .env
-# Edit DATABASE_URL and JWT secrets
+# Edit MONGODB_URI and JWT secrets
 
-# 3. Migrate + seed
-npm run db:setup
+# 3. Seed
+npm run seed
 
 # 4. Run
 npm run dev
@@ -39,96 +39,33 @@ Health: `http://localhost:5000/health`
 ## Architecture
 
 ```
-Request → Route (middleware) → Controller → Service → Repository → Prisma
+Request → Route (middleware) → Controller → Service → Repository → Mongoose
 ```
 
-| Layer        | Responsibility                                      |
-|--------------|-----------------------------------------------------|
-| Route        | Mount path, auth/role/validate middleware           |
-| Controller   | HTTP in/out via `catchAsync` + `ApiResponse`        |
-| Service      | Business rules; throws `ApiError`                   |
-| Repository   | Prisma queries only                                 |
-| Validation   | Zod schemas via `validate.middleware`               |
-
-**RBAC**
-
-- **ADMIN** — countries, branches, products, users, inventory assign/quantity
-- **SELLER** — read own profile + assigned inventory only (no stock edits)
+| Layer        | Responsibility                                  |
+|--------------|--------------------------------------------------|
+| Route        | Auth, role, validation, upload wiring            |
+| Controller   | HTTP in/out via ApiResponse                      |
+| Service      | Business rules                                   |
+| Repository   | Mongoose queries + populate                      |
+| Models       | `src/models/*` (UUID string `_id`, `id` in JSON) |
 
 ---
 
-## API map
+## Environment
 
-### Auth
-| Method | Path | Access |
-|--------|------|--------|
-| POST | `/api/auth/login` | Public |
-| POST | `/api/auth/refresh` | Public |
-| POST | `/api/auth/logout` | Public |
-| GET | `/api/auth/me` | Auth |
-
-### Users
-| Method | Path | Access |
-|--------|------|--------|
-| POST | `/api/users` | Admin |
-| GET | `/api/users` | Admin |
-| GET | `/api/users/:id` | Admin / own (Seller) |
-| PATCH | `/api/users/:id` | Admin |
-| DELETE | `/api/users/:id` | Admin |
-
-### Countries & Branches
-| Method | Path | Access |
-|--------|------|--------|
-| CRUD | `/api/countries` | Admin |
-| CRUD | `/api/branches` | Admin |
-
-### Products (master catalog)
-| Method | Path | Access |
-|--------|------|--------|
-| POST/PATCH/DELETE | `/api/products` | Admin |
-| GET | `/api/products` | Admin + Seller |
-
-### Inventory
-| Method | Path | Access |
-|--------|------|--------|
-| GET | `/api/inventory/me` | Auth |
-| GET | `/api/inventory` | Admin (filter: countryId, branchId, userId) |
-| POST | `/api/inventory/assign` | Admin |
-| GET | `/api/inventory/user/:userId` | Admin / own |
-| PATCH | `/api/inventory/:id/quantity` | Admin |
-| PATCH | `/api/inventory/:id/adjust` | Admin |
-| DELETE | `/api/inventory/:id` | Admin |
-
-### Dashboard
-| Method | Path | Access |
-|--------|------|--------|
-| GET | `/api/dashboard/overview` | Auth (role-aware) |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MONGODB_URI` | Yes | MongoDB connection string |
+| `JWT_ACCESS_SECRET` | Yes | Access token secret |
+| `JWT_REFRESH_SECRET` | Yes | Refresh token secret |
+| `PORT` | No | Default `5000` |
+| `UPLOAD_*` | No | Local product image uploads |
 
 ---
 
-## Auth flow
+## Notes
 
-1. `POST /api/auth/login` → `accessToken` + `refreshToken`
-2. Send `Authorization: Bearer <accessToken>` on protected routes
-3. When access expires → `POST /api/auth/refresh` with body `{ "refreshToken" }`
-4. Logout → `POST /api/auth/logout` (revokes stored refresh token)
-
-Refresh tokens are stored **hashed** in `refresh_tokens` and rotated on each refresh.
-
----
-
-## Postman
-
-Import [`postman/Inventory_API.postman_collection.json`](./postman/Inventory_API.postman_collection.json).
-
-Collection variables:
-
-- `baseUrl` — default `http://localhost:5000/api`
-- `accessToken` / `refreshToken` — auto-set by Login test script
-
----
-
-## Future modules
-
-The same module pattern scales for: Customer, Sales, Supplier, Category, Purchase, Reports.
-# inventory_backend
+- Document IDs remain **UUID strings** (not ObjectIds) so the existing frontend validators keep working.
+- Cascading deletes (country → branches, user/product → inventory/sales) are handled in repositories.
+- Stock sales use atomic `findOneAndUpdate` with a quantity guard (no replica-set transaction required).

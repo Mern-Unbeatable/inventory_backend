@@ -55,20 +55,8 @@ const branchService = {
     const { page, limit, countryId, search } = query;
     const skip = (page - 1) * limit;
 
-    const where = {
-      ...(countryId ? { countryId } : {}),
-      ...(search
-        ? {
-            OR: [
-              { name: { contains: search, mode: 'insensitive' } },
-              { code: { contains: search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    };
-
     const { items, total } = await branchRepository.findManyBranches({
-      where,
+      filters: { countryId, search },
       skip,
       take: limit,
     });

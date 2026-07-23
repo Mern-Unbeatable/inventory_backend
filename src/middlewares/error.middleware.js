@@ -1,5 +1,5 @@
 import { ZodError } from 'zod';
-import { Prisma } from '@prisma/client';
+import mongoose from 'mongoose';
 import env from '../config/env.js';
 import ApiError from '../utils/ApiError.js';
 
@@ -21,18 +21,25 @@ const errorHandler = (err, _req, res, _next) => {
     }));
   }
 
-  if (err instanceof Prisma.PrismaClientKnownRequestError) {
-    if (err.code === 'P2002') {
-      statusCode = 409;
-      const fields = Array.isArray(err.meta?.target) ? err.meta.target.join(', ') : 'field';
-      message = `Duplicate value for unique field(s): ${fields}`;
-    } else if (err.code === 'P2025') {
-      statusCode = 404;
-      message = 'Record not found';
-    } else if (err.code === 'P2003') {
-      statusCode = 400;
-      message = 'Invalid related resource reference';
-    }
+  // Mongo duplicate key (unique index) — equivalent to Prisma P2002
+  if (err?.code === 11000) {
+    statusCode = 409;
+    const fields = err.keyPattern ? Object.keys(err.keyPattern).join(', ') : 'field';
+    message = `Duplicate value for unique field(s): ${fields}`;
+  }
+
+  if (err instanceof mongoose.Error.CastError) {
+    statusCode = 400;
+    message = 'Invalid related resource reference';
+  }
+
+  if (err instanceof mongoose.Error.ValidationError) {
+    statusCode = 400;
+    message = 'Validation failed';
+    errors = Object.values(err.errors).map((e) => ({
+      path: e.path,
+      message: e.message,
+    }));
   }
 
   if (!(err instanceof ApiError) && statusCode === 500) {

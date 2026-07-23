@@ -1,4 +1,74 @@
-import prisma from '../../config/prisma.js';
+import { Country } from '../../models/Country.js';
+import { Branch } from '../../models/Branch.js';
+import { User } from '../../models/User.js';
+import { Product } from '../../models/Product.js';
+import { UserProduct } from '../../models/UserProduct.js';
+import { Sale } from '../../models/Sale.js';
+import { toApi } from '../../utils/mongooseHelpers.js';
+
+const sumField = async (Model, match, field) => {
+  const [row] = await Model.aggregate([
+    ...(Object.keys(match).length ? [{ $match: match }] : []),
+    { $group: { _id: null, total: { $sum: `$${field}` }, count: { $sum: 1 } } },
+  ]);
+  return { total: row?.total ?? 0, count: row?.count ?? 0 };
+};
+
+const mapAdminSale = (doc) => {
+  const json = toApi(doc);
+  const product =
+    json.productId && typeof json.productId === 'object' ? json.productId : null;
+  const user = json.userId && typeof json.userId === 'object' ? json.userId : null;
+  const branch =
+    user?.branchId && typeof user.branchId === 'object' ? user.branchId : null;
+  const country =
+    branch?.countryId && typeof branch.countryId === 'object'
+      ? branch.countryId
+      : null;
+
+  return {
+    id: json.id,
+    userId: user?.id ?? json.userId,
+    productId: product?.id ?? json.productId,
+    userProductId: json.userProductId,
+    quantity: json.quantity,
+    unitPrice: json.unitPrice,
+    revenue: json.revenue,
+    createdAt: json.createdAt,
+    product,
+    user: user
+      ? {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          branch: branch
+            ? {
+                id: branch.id,
+                name: branch.name,
+                country,
+              }
+            : null,
+        }
+      : null,
+  };
+};
+
+const mapSellerSale = (doc) => {
+  const json = toApi(doc);
+  const product =
+    json.productId && typeof json.productId === 'object' ? json.productId : null;
+  return {
+    id: json.id,
+    userId: json.userId,
+    productId: product?.id ?? json.productId,
+    userProductId: json.userProductId,
+    quantity: json.quantity,
+    unitPrice: json.unitPrice,
+    revenue: json.revenue,
+    createdAt: json.createdAt,
+    product,
+  };
+};
 
 const dashboardRepository = {
   async getAdminStats() {
@@ -14,88 +84,72 @@ const dashboardRepository = {
       revenueAgg,
       unitsSoldAgg,
     ] = await Promise.all([
-      prisma.country.count(),
-      prisma.branch.count(),
-      prisma.user.count(),
-      prisma.user.count({ where: { role: 'SELLER' } }),
-      prisma.product.count(),
-      prisma.userProduct.count(),
-      prisma.userProduct.aggregate({ _sum: { quantity: true } }),
-      prisma.userProduct.count({ where: { quantity: { lte: 5 } } }),
-      prisma.sale.aggregate({ _sum: { revenue: true }, _count: true }),
-      prisma.sale.aggregate({ _sum: { quantity: true } }),
+      Country.countDocuments(),
+      Branch.countDocuments(),
+      User.countDocuments(),
+      User.countDocuments({ role: 'SELLER' }),
+      Product.countDocuments(),
+      UserProduct.countDocuments(),
+      sumField(UserProduct, {}, 'quantity'),
+      UserProduct.countDocuments({ quantity: { $lte: 5 } }),
+      sumField(Sale, {}, 'revenue'),
+      sumField(Sale, {}, 'quantity'),
     ]);
 
-    const stockByCountry = await prisma.country.findMany({
-      select: {
-        id: true,
-        name: true,
-        code: true,
-        branches: {
-          select: {
-            id: true,
-            name: true,
-            users: {
-              select: {
-                id: true,
-                assignedProducts: {
-                  select: { quantity: true },
-                },
-                sales: {
-                  select: { revenue: true, quantity: true },
-                },
-              },
-            },
-          },
-        },
-      },
-      orderBy: { name: 'asc' },
-    });
+    const stockByCountry = await Country.find().sort({ name: 1 }).lean();
+    const countryBreakdown = [];
 
-    const countryBreakdown = stockByCountry.map((country) => {
+    for (const country of stockByCountry) {
+      const countryBranches = await Branch.find({ countryId: country._id }).lean();
       let totalQuantity = 0;
       let revenue = 0;
       let unitsSold = 0;
       let sellerCount = 0;
-      for (const branch of country.branches) {
-        for (const user of branch.users) {
-          sellerCount += 1;
-          for (const ap of user.assignedProducts) {
-            totalQuantity += ap.quantity;
-          }
-          for (const sale of user.sales) {
-            revenue += sale.revenue;
-            unitsSold += sale.quantity;
-          }
+
+      for (const branch of countryBranches) {
+        const branchUsers = await User.find({ branchId: branch._id })
+          .select('_id')
+          .lean();
+        sellerCount += branchUsers.length;
+        const userIds = branchUsers.map((u) => u._id);
+
+        if (userIds.length) {
+          const [stock, sales] = await Promise.all([
+            sumField(UserProduct, { userId: { $in: userIds } }, 'quantity'),
+            sumField(Sale, { userId: { $in: userIds } }, 'revenue'),
+          ]);
+          const units = await sumField(Sale, { userId: { $in: userIds } }, 'quantity');
+          totalQuantity += stock.total;
+          revenue += sales.total;
+          unitsSold += units.total;
         }
       }
-      return {
-        id: country.id,
+
+      countryBreakdown.push({
+        id: country._id,
         name: country.name,
         code: country.code,
-        branchCount: country.branches.length,
+        branchCount: countryBranches.length,
         sellerCount,
         totalQuantity,
         revenue,
         unitsSold,
-      };
-    });
+      });
+    }
 
-    const recentSales = await prisma.sale.findMany({
-      take: 8,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        product: { select: { id: true, title: true, sku: true, price: true } },
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            branch: { select: { id: true, name: true, country: true } },
-          },
+    const recentSaleDocs = await Sale.find()
+      .sort({ createdAt: -1 })
+      .limit(8)
+      .populate({ path: 'productId', select: 'title sku price' })
+      .populate({
+        path: 'userId',
+        select: 'name email branchId',
+        populate: {
+          path: 'branchId',
+          select: 'name countryId',
+          populate: { path: 'countryId' },
         },
-      },
-    });
+      });
 
     return {
       totals: {
@@ -105,57 +159,42 @@ const dashboardRepository = {
         sellers,
         products,
         assignments,
-        totalStockQuantity: stockAgg._sum.quantity ?? 0,
-        revenue: revenueAgg._sum.revenue ?? 0,
-        unitsSold: unitsSoldAgg._sum.quantity ?? 0,
-        salesCount: revenueAgg._count ?? 0,
+        totalStockQuantity: stockAgg.total,
+        revenue: revenueAgg.total,
+        unitsSold: unitsSoldAgg.total,
+        salesCount: revenueAgg.count,
         lowStockAssignments: lowStock,
       },
       countryBreakdown,
-      recentSales,
+      recentSales: recentSaleDocs.map(mapAdminSale),
     };
   },
 
   async getSellerStats(userId) {
-    const [assignments, stockAgg, lowStock, revenueAgg, unitsSoldAgg] = await Promise.all([
-      prisma.userProduct.count({ where: { userId } }),
-      prisma.userProduct.aggregate({
-        where: { userId },
-        _sum: { quantity: true },
-      }),
-      prisma.userProduct.count({
-        where: { userId, quantity: { lte: 5 } },
-      }),
-      prisma.sale.aggregate({
-        where: { userId },
-        _sum: { revenue: true },
-        _count: true,
-      }),
-      prisma.sale.aggregate({
-        where: { userId },
-        _sum: { quantity: true },
-      }),
-    ]);
+    const [assignments, stockAgg, lowStock, revenueAgg, unitsSoldAgg] =
+      await Promise.all([
+        UserProduct.countDocuments({ userId }),
+        sumField(UserProduct, { userId }, 'quantity'),
+        UserProduct.countDocuments({ userId, quantity: { $lte: 5 } }),
+        sumField(Sale, { userId }, 'revenue'),
+        sumField(Sale, { userId }, 'quantity'),
+      ]);
 
-    const recentSales = await prisma.sale.findMany({
-      where: { userId },
-      include: {
-        product: { select: { id: true, title: true, sku: true, price: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 8,
-    });
+    const recentSaleDocs = await Sale.find({ userId })
+      .sort({ createdAt: -1 })
+      .limit(8)
+      .populate({ path: 'productId', select: 'title sku price' });
 
     return {
       totals: {
         assignedProducts: assignments,
-        totalStockQuantity: stockAgg._sum.quantity ?? 0,
-        revenue: revenueAgg._sum.revenue ?? 0,
-        unitsSold: unitsSoldAgg._sum.quantity ?? 0,
-        salesCount: revenueAgg._count ?? 0,
+        totalStockQuantity: stockAgg.total,
+        revenue: revenueAgg.total,
+        unitsSold: unitsSoldAgg.total,
+        salesCount: revenueAgg.count,
         lowStockProducts: lowStock,
       },
-      recentSales,
+      recentSales: recentSaleDocs.map(mapSellerSale),
     };
   },
 };

@@ -1,10 +1,10 @@
 import app from './app.js';
 import env from './config/env.js';
-import prisma from './config/prisma.js';
+import { connectDatabase, disconnectDatabase } from './config/mongoose.js';
 
 const startServer = async () => {
   try {
-    await prisma.$connect();
+    await connectDatabase();
     console.log('Database connected');
 
     app.listen(env.port, () => {
@@ -19,7 +19,7 @@ const startServer = async () => {
 
 const shutdown = async (signal) => {
   console.log(`${signal} received. Shutting down...`);
-  await prisma.$disconnect();
+  await disconnectDatabase();
   process.exit(0);
 };
 

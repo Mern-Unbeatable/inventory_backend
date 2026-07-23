@@ -2,23 +2,38 @@ import { z } from 'zod';
 
 const uuid = z.string().uuid('Invalid id');
 
+const emptyToUndefined = (value) => {
+  if (value === '' || value === null || value === undefined) return undefined;
+  return value;
+};
+
+const coerceBoolean = z.preprocess((value) => {
+  if (value === true || value === 'true' || value === '1' || value === 1) return true;
+  if (value === false || value === 'false' || value === '0' || value === 0) return false;
+  if (value === '' || value === undefined || value === null) return undefined;
+  return value;
+}, z.boolean().optional());
+
 export const createProductSchema = z.object({
   title: z.string().min(2).max(200),
   sku: z.string().min(2).max(100),
-  description: z.string().max(2000).optional().nullable(),
+  description: z.preprocess(
+    emptyToUndefined,
+    z.string().max(2000).optional().nullable()
+  ),
   price: z.coerce.number().min(0).default(0),
 });
 
-export const updateProductSchema = z
-  .object({
-    title: z.string().min(2).max(200).optional(),
-    sku: z.string().min(2).max(100).optional(),
-    description: z.string().max(2000).optional().nullable(),
-    price: z.coerce.number().min(0).optional(),
-  })
-  .refine((data) => Object.keys(data).length > 0, {
-    message: 'At least one field is required',
-  });
+export const updateProductSchema = z.object({
+  title: z.preprocess(emptyToUndefined, z.string().min(2).max(200).optional()),
+  sku: z.preprocess(emptyToUndefined, z.string().min(2).max(100).optional()),
+  description: z.preprocess(
+    emptyToUndefined,
+    z.string().max(2000).optional().nullable()
+  ),
+  price: z.preprocess(emptyToUndefined, z.coerce.number().min(0).optional()),
+  removeImage: coerceBoolean,
+});
 
 export const productIdParamSchema = z.object({ id: uuid });
 

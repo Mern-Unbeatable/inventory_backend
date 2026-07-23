@@ -3,6 +3,7 @@ import productController from './product.controller.js';
 import authenticate from '../../middlewares/auth.middleware.js';
 import authorize from '../../middlewares/role.middleware.js';
 import validate from '../../middlewares/validate.middleware.js';
+import { uploadProductImage } from '../../middlewares/upload.middleware.js';
 import {
   createProductSchema,
   updateProductSchema,
@@ -14,10 +15,11 @@ const router = Router();
 
 router.use(authenticate);
 
-// Admin: full master product CRUD
+// Admin: full master product CRUD (JSON or multipart/form-data with optional image)
 router.post(
   '/',
   authorize('ADMIN'),
+  uploadProductImage,
   validate({ body: createProductSchema }),
   productController.create
 );
@@ -40,6 +42,7 @@ router.get(
 router.patch(
   '/:id',
   authorize('ADMIN'),
+  uploadProductImage,
   validate({ params: productIdParamSchema, body: updateProductSchema }),
   productController.update
 );
