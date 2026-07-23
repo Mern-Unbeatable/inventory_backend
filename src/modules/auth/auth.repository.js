@@ -30,6 +30,32 @@ const authRepository = {
     });
   },
 
+  findCredentialsById(id) {
+    return prisma.user.findUnique({
+      where: { id },
+      select: { id: true, password: true },
+    });
+  },
+
+  updateProfile(id, data) {
+    return prisma.user.update({
+      where: { id },
+      data,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        branchId: true,
+        createdAt: true,
+        updatedAt: true,
+        branch: {
+          include: { country: true },
+        },
+      },
+    });
+  },
+
   createRefreshToken({ token, userId, expiresAt }) {
     return prisma.refreshToken.create({
       data: { token, userId, expiresAt },

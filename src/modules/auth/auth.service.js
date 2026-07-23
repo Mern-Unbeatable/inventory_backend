@@ -1,6 +1,11 @@
 import authRepository from './auth.repository.js';
 import ApiError from '../../utils/ApiError.js';
-import { comparePassword, hashToken, compareToken } from '../../utils/bcrypt.js';
+import {
+  comparePassword,
+  hashPassword,
+  hashToken,
+  compareToken,
+} from '../../utils/bcrypt.js';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../../utils/jwt.js';
 import env from '../../config/env.js';
 
@@ -122,6 +127,47 @@ const authService = {
       throw ApiError.notFound('User not found');
     }
     return user;
+  },
+
+  async updateProfile(userId, payload) {
+    const user = await authRepository.findById(userId);
+    if (!user) {
+      throw ApiError.notFound('User not found');
+    }
+
+    const data = {};
+    if (payload.name !== undefined) {
+      data.name = payload.name;
+    }
+
+    if (payload.email !== undefined) {
+      const email = payload.email.toLowerCase();
+      const existing = await authRepository.findByEmail(email);
+      if (existing && existing.id !== userId) {
+        throw ApiError.conflict('Email already registered');
+      }
+      data.email = email;
+    }
+
+    return authRepository.updateProfile(userId, data);
+  },
+
+  async changePassword(userId, { currentPassword, newPassword }) {
+    const user = await authRepository.findCredentialsById(userId);
+    if (!user) {
+      throw ApiError.notFound('User not found');
+    }
+
+    const valid = await comparePassword(currentPassword, user.password);
+    if (!valid) {
+      throw ApiError.badRequest('Current password is incorrect');
+    }
+
+    const hashed = await hashPassword(newPassword);
+    await authRepository.updateProfile(userId, { password: hashed });
+    await authRepository.deleteUserRefreshTokens(userId);
+
+    return { updated: true };
   },
 };
 

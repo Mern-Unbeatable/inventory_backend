@@ -22,6 +22,16 @@ const authController = {
     const data = await authService.me(req.user.id);
     return ApiResponse.success(res, data, 'Profile fetched successfully');
   }),
+
+  updateProfile: catchAsync(async (req, res) => {
+    const data = await authService.updateProfile(req.user.id, req.body);
+    return ApiResponse.success(res, data, 'Profile updated successfully');
+  }),
+
+  changePassword: catchAsync(async (req, res) => {
+    const data = await authService.changePassword(req.user.id, req.body);
+    return ApiResponse.success(res, data, 'Password updated successfully');
+  }),
 };
 
 export default authController;
