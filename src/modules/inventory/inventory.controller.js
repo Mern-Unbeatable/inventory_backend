@@ -51,6 +51,31 @@ const inventoryController = {
     return ApiResponse.success(res, data, 'Sale recorded and stock updated');
   }),
 
+  receive: catchAsync(async (req, res) => {
+    const data = await inventoryService.receive(
+      req.params.id,
+      req.body.quantity,
+      req.body.reason,
+      req.user
+    );
+    return ApiResponse.success(res, data, 'Stock received and inventory updated');
+  }),
+
+  getTransactions: catchAsync(async (req, res) => {
+    const data = await inventoryService.getTransactions(req.params.id, req.query, req.user);
+    return ApiResponse.success(res, data, 'Transaction history fetched successfully');
+  }),
+
+  getMyTransactions: catchAsync(async (req, res) => {
+    const data = await inventoryService.getMyTransactions(req.query, req.user);
+    return ApiResponse.success(res, data, 'Transaction history fetched successfully');
+  }),
+
+  listTransactions: catchAsync(async (req, res) => {
+    const data = await inventoryService.listTransactions(req.query);
+    return ApiResponse.success(res, data, 'Transaction ledger fetched successfully');
+  }),
+
   unassign: catchAsync(async (req, res) => {
     const data = await inventoryService.unassign(req.params.id);
     return ApiResponse.success(res, data, 'Product unassigned successfully');

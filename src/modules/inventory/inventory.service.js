@@ -120,7 +120,12 @@ const inventoryService = {
       throw ApiError.forbidden('Only admins can set stock quantity');
     }
     const row = this.assertCanMutateStock(await inventoryRepository.findById(id), requester);
-    return inventoryRepository.updateQuantity(row.id, quantity);
+    return inventoryRepository.updateQuantity(row.id, quantity, {
+      type: 'MANUAL_UPDATE',
+      beforeQuantity: row.quantity,
+      reason: 'Manual quantity update',
+      performedBy: requester.id,
+    });
   },
 
   /** Admin-only: increase/decrease by delta */
@@ -137,7 +142,79 @@ const inventoryService = {
       );
     }
 
-    return inventoryRepository.updateQuantity(row.id, next);
+    return inventoryRepository.updateQuantity(row.id, next, {
+      type: 'ADJUSTMENT',
+      beforeQuantity: row.quantity,
+      reason: `Adjusted by ${delta > 0 ? '+' : ''}${delta}`,
+      performedBy: requester.id,
+    });
+  },
+
+  /**
+   * Seller (own) or Admin: record newly received stock — increases quantity
+   * and logs a RECEIVED inventory transaction. This is the one stock-increasing
+   * action a SELLER can perform themselves (set/adjust remain admin-only).
+   */
+  async receive(id, quantity, reason, requester) {
+    const row = this.assertCanMutateStock(await inventoryRepository.findById(id), requester);
+    return inventoryRepository.receiveStock({
+      inventoryId: row.id,
+      quantity,
+      reason,
+      performedBy: requester.id,
+    });
+  },
+
+  /** Transaction history for a single inventory record. */
+  async getTransactions(id, query, requester) {
+    const row = this.assertCanMutateStock(await inventoryRepository.findById(id), requester);
+    const { page, limit } = query;
+    const skip = (page - 1) * limit;
+
+    const { items, total } = await inventoryRepository.findTransactions({
+      filters: { userProductId: row.id },
+      skip,
+      take: limit,
+    });
+
+    return {
+      items,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
+    };
+  },
+
+  /** Seller: their own full transaction history across all products. */
+  async getMyTransactions(query, requester) {
+    const { page, limit, productId, type } = query;
+    const skip = (page - 1) * limit;
+
+    const { items, total } = await inventoryRepository.findTransactions({
+      filters: { userId: requester.id, productId, type },
+      skip,
+      take: limit,
+    });
+
+    return {
+      items,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
+    };
+  },
+
+  /** Admin-only: global, filterable transaction ledger. */
+  async listTransactions(query) {
+    const { page, limit, userId, productId, type } = query;
+    const skip = (page - 1) * limit;
+
+    const { items, total } = await inventoryRepository.findTransactions({
+      filters: { userId, productId, type },
+      skip,
+      take: limit,
+    });
+
+    return {
+      items,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
+    };
   },
 
   /**
@@ -162,6 +239,7 @@ const inventoryService = {
         unitPrice,
         userId: row.userId,
         productId: row.productId,
+        performedBy: requester.id,
       });
 
       return {

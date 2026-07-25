@@ -3,8 +3,10 @@ import { User } from '../../models/User.js';
 import { Product } from '../../models/Product.js';
 import { Branch } from '../../models/Branch.js';
 import { Sale } from '../../models/Sale.js';
+import { InventoryTransaction } from '../../models/InventoryTransaction.js';
 import { toApi } from '../../utils/mongooseHelpers.js';
 import { containsInsensitive } from '../../utils/queryHelpers.js';
+import { recordInventoryTransaction } from '../../utils/inventoryTransaction.js';
 
 const inventoryPopulate = [
   { path: 'productId' },
@@ -178,16 +180,57 @@ const inventoryRepository = {
     });
   },
 
-  async updateQuantity(id, quantity) {
+  async updateQuantity(id, quantity, ledger) {
     const row = await UserProduct.findByIdAndUpdate(
       id,
       { quantity },
       { new: true }
     ).populate(inventoryPopulate);
+
+    if (ledger) {
+      await recordInventoryTransaction({
+        userProductId: row._id,
+        userId: row.userId,
+        productId: row.productId,
+        type: ledger.type,
+        beforeQuantity: ledger.beforeQuantity,
+        changeQuantity: quantity - ledger.beforeQuantity,
+        afterQuantity: quantity,
+        reason: ledger.reason,
+        performedBy: ledger.performedBy,
+      });
+    }
+
     return mapInventoryRow(row);
   },
 
-  async recordSale({ inventoryId, soldQuantity, unitPrice, userId, productId }) {
+  /** Increases stock (staff "receiving" a delivery) — logs a RECEIVED transaction. */
+  async receiveStock({ inventoryId, quantity, performedBy, reason }) {
+    const before = await UserProduct.findById(inventoryId);
+    if (!before) throw new Error('NOT_FOUND');
+
+    const updated = await UserProduct.findByIdAndUpdate(
+      inventoryId,
+      { $inc: { quantity } },
+      { new: true }
+    ).populate(inventoryPopulate);
+
+    await recordInventoryTransaction({
+      userProductId: updated._id,
+      userId: updated.userId,
+      productId: updated.productId,
+      type: 'RECEIVED',
+      beforeQuantity: before.quantity,
+      changeQuantity: quantity,
+      afterQuantity: updated.quantity,
+      reason: reason ?? 'Stock received',
+      performedBy,
+    });
+
+    return mapInventoryRow(updated);
+  },
+
+  async recordSale({ inventoryId, soldQuantity, unitPrice, userId, productId, performedBy }) {
     const revenue = soldQuantity * unitPrice;
 
     const updated = await UserProduct.findOneAndUpdate(
@@ -203,6 +246,18 @@ const inventoryRepository = {
     }
 
     const previousQuantity = updated.quantity + soldQuantity;
+
+    await recordInventoryTransaction({
+      userProductId: updated._id,
+      userId,
+      productId,
+      type: 'SALE',
+      beforeQuantity: previousQuantity,
+      changeQuantity: -soldQuantity,
+      afterQuantity: updated.quantity,
+      reason: 'Direct sale',
+      performedBy: performedBy ?? userId,
+    });
 
     const saleDoc = await Sale.create({
       userId,
@@ -251,6 +306,39 @@ const inventoryRepository = {
     const product = await Product.findById(productId).select('title sku');
     if (!product) return null;
     return { id: product._id, title: product.title, sku: product.sku };
+  },
+
+  async findTransactions({ filters = {}, skip = 0, take = 20 }) {
+    const query = {};
+    if (filters.userProductId) query.userProductId = filters.userProductId;
+    if (filters.userId) query.userId = filters.userId;
+    if (filters.productId) query.productId = filters.productId;
+    if (filters.type) query.type = filters.type;
+
+    const [rows, total] = await Promise.all([
+      InventoryTransaction.find(query)
+        .populate({ path: 'productId', select: 'title sku' })
+        .populate({ path: 'performedBy', select: 'name email role' })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(take),
+      InventoryTransaction.countDocuments(query),
+    ]);
+
+    const items = rows.map((row) => {
+      const json = toApi(row);
+      const product =
+        json.productId && typeof json.productId === 'object' ? json.productId : null;
+      const performer =
+        json.performedBy && typeof json.performedBy === 'object' ? json.performedBy : null;
+      json.productId = product?.id ?? json.productId;
+      json.product = product;
+      json.performedBy = performer?.id ?? json.performedBy;
+      json.performedByUser = performer;
+      return json;
+    });
+
+    return { items, total };
   },
 };
 

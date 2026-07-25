@@ -42,6 +42,7 @@ const productService = {
     const { page, limit, search, minPrice, maxPrice } = query;
     const skip = (page - 1) * limit;
     const isSeller = requester?.role === 'SELLER';
+    const isCustomer = requester?.role === 'CUSTOMER';
 
     const { items, total } = await productRepository.findMany({
       filters: {
@@ -52,6 +53,7 @@ const productService = {
       skip,
       take: limit,
       sellerId: isSeller ? requester.id : null,
+      forCustomer: isCustomer,
     });
 
     return {
@@ -72,6 +74,14 @@ const productService = {
         throw ApiError.notFound('Product not found or not assigned to you');
       }
       return mapSellerProduct(product);
+    }
+
+    if (requester?.role === 'CUSTOMER') {
+      const product = await productRepository.findByIdForCustomer(id);
+      if (!product) {
+        throw ApiError.notFound('Product not found');
+      }
+      return product;
     }
 
     const product = await productRepository.findById(id);

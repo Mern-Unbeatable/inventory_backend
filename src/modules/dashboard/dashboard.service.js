@@ -7,6 +7,11 @@ const dashboardService = {
       return { role: 'ADMIN', ...stats };
     }
 
+    if (requester.role === 'CUSTOMER') {
+      const stats = await dashboardRepository.getCustomerStats();
+      return { role: 'CUSTOMER', ...stats };
+    }
+
     const stats = await dashboardRepository.getSellerStats(requester.id);
     return { role: 'SELLER', ...stats };
   },

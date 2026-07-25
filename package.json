@@ -8,7 +8,9 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "seed": "node src/seed.js",
-    "db:setup": "npm run seed"
+    "seed:reset": "node src/seed.js --reset",
+    "db:setup": "npm run seed",
+    "db:reset": "npm run seed:reset"
   },
   "keywords": [
     "inventory",

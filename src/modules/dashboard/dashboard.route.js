@@ -8,7 +8,7 @@ const router = Router();
 router.get(
   '/overview',
   authenticate,
-  authorize('ADMIN', 'SELLER'),
+  authorize('ADMIN', 'SELLER', 'CUSTOMER'),
   dashboardController.overview
 );
 

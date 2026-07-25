@@ -7,7 +7,7 @@ const userSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     password: { type: String, required: true },
-    role: { type: String, enum: ['ADMIN', 'SELLER'], default: 'SELLER', index: true },
+    role: { type: String, enum: ['ADMIN', 'SELLER', 'CUSTOMER'], default: 'SELLER', index: true },
     branchId: { type: String, ref: 'Branch', default: null, index: true },
   },
   { timestamps: true, collection: 'users' }

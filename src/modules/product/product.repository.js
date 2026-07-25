@@ -27,6 +27,26 @@ const withSellerAssignment = async (doc, sellerId) => {
   return json;
 };
 
+/** Customer-facing shape: only name/sku/price/image + total stock company-wide (no per-seller detail). */
+const toCustomerShape = (json, availableQuantity) => ({
+  id: json.id,
+  title: json.title,
+  sku: json.sku,
+  price: json.price,
+  imageUrl: json.imageUrl,
+  availableQuantity: availableQuantity ?? 0,
+});
+
+const withAvailableQuantity = async (doc) => {
+  if (!doc) return null;
+  const json = toApi(doc);
+  const [row] = await UserProduct.aggregate([
+    { $match: { productId: json.id } },
+    { $group: { _id: null, total: { $sum: '$quantity' } } },
+  ]);
+  return toCustomerShape(json, row?.total ?? 0);
+};
+
 const productRepository = {
   async create(data) {
     const product = await Product.create(data);
@@ -45,12 +65,18 @@ const productRepository = {
     return withSellerAssignment(product, userId);
   },
 
+  async findByIdForCustomer(id) {
+    const product = await Product.findById(id);
+    if (!product) return null;
+    return withAvailableQuantity(product);
+  },
+
   async findBySku(sku) {
     const product = await Product.findOne({ sku });
     return product ? toApi(product) : null;
   },
 
-  async findMany({ filters = {}, skip = 0, take = 20, sellerId = null }) {
+  async findMany({ filters = {}, skip = 0, take = 20, sellerId = null, forCustomer = false }) {
     const query = {};
 
     if (filters.search) {
@@ -76,6 +102,17 @@ const productRepository = {
       Product.find(query).sort({ createdAt: -1 }).skip(skip).limit(take),
       Product.countDocuments(query),
     ]);
+
+    if (forCustomer) {
+      const ids = rows.map((row) => row._id);
+      const stockRows = await UserProduct.aggregate([
+        { $match: { productId: { $in: ids } } },
+        { $group: { _id: '$productId', total: { $sum: '$quantity' } } },
+      ]);
+      const stockMap = new Map(stockRows.map((r) => [r._id, r.total]));
+      const items = rows.map((row) => toCustomerShape(toApi(row), stockMap.get(row._id) ?? 0));
+      return { items, total };
+    }
 
     const items = sellerId
       ? await Promise.all(rows.map((row) => withSellerAssignment(row, sellerId)))

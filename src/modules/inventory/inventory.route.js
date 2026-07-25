@@ -8,9 +8,11 @@ import {
   updateQuantitySchema,
   adjustQuantitySchema,
   sellProductSchema,
+  receiveStockSchema,
   inventoryIdParamSchema,
   userIdParamSchema,
   listInventoryQuerySchema,
+  listTransactionsQuerySchema,
 } from './inventory.validation.js';
 
 const router = Router();
@@ -19,6 +21,24 @@ router.use(authenticate);
 
 // Seller + Admin: own inventory shortcut
 router.get('/me', authorize('ADMIN', 'SELLER'), inventoryController.myInventory);
+
+// Seller: own full transaction history across all products.
+// (Registered before the generic '/:id' route below — 'transactions' would
+// otherwise be swallowed as an :id path segment.)
+router.get(
+  '/transactions/me',
+  authorize('ADMIN', 'SELLER'),
+  validate({ query: listTransactionsQuerySchema }),
+  inventoryController.getMyTransactions
+);
+
+// Admin: global, filterable inventory transaction ledger
+router.get(
+  '/transactions',
+  authorize('ADMIN'),
+  validate({ query: listTransactionsQuerySchema }),
+  inventoryController.listTransactions
+);
 
 // Admin: cascading inventory list (country / branch / user filters)
 router.get(
@@ -74,6 +94,22 @@ router.post(
   authorize('ADMIN', 'SELLER'),
   validate({ params: inventoryIdParamSchema, body: sellProductSchema }),
   inventoryController.sell
+);
+
+// Admin or owning seller: record newly received stock (increases stock)
+router.post(
+  '/:id/receive',
+  authorize('ADMIN', 'SELLER'),
+  validate({ params: inventoryIdParamSchema, body: receiveStockSchema }),
+  inventoryController.receive
+);
+
+// Admin or owning seller: transaction history for this inventory record
+router.get(
+  '/:id/transactions',
+  authorize('ADMIN', 'SELLER'),
+  validate({ params: inventoryIdParamSchema, query: listTransactionsQuerySchema }),
+  inventoryController.getTransactions
 );
 
 // Admin: unassign

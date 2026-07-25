@@ -29,10 +29,17 @@ Health: `http://localhost:5000/health`
 
 ### Seed credentials
 
-| Role   | Email                         | Password      |
-|--------|-------------------------------|---------------|
-| Admin  | `admin@inventory.com`         | `Admin@12345` |
-| Seller | `seller.addis@inventory.com`  | `Seller@12345`|
+`npm run seed` upserts (safe to re-run, never deletes). `npm run seed:reset` (or `npm run db:reset`) **drops the entire database first**, then seeds — use only when you want a clean slate.
+
+| Role   | Email                              | Password       | Branch                 |
+|--------|-------------------------------------|----------------|-------------------------|
+| Admin  | `admin@inventory.com`               | `Admin@12345`  | —                       |
+| Seller | `seller.addis@inventory.com`        | `Seller@12345` | Addis Ababa HQ (ET)     |
+| Seller | `seller.hawassa@inventory.com`      | `Seller@12345` | Hawassa Branch (ET)     |
+| Seller | `seller.dhaka@inventory.com`        | `Seller@12345` | Dhaka Export Hub (BD)   |
+| Seller | `seller.chittagong@inventory.com`   | `Seller@12345` | Chittagong Port Branch (BD) |
+
+Also seeds 8 products distributed across the 4 sellers (with a few low-stock rows) and a handful of historical sales for dashboard data.
 
 ---
 

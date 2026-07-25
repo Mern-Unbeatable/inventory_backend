@@ -25,16 +25,17 @@ router.post(
 );
 
 // Admin: full catalog. Seller: only products assigned by admin.
+// Customer: read-only catalog (title/price/availableQuantity only).
 router.get(
   '/',
-  authorize('ADMIN', 'SELLER'),
+  authorize('ADMIN', 'SELLER', 'CUSTOMER'),
   validate({ query: listProductsQuerySchema }),
   productController.list
 );
 
 router.get(
   '/:id',
-  authorize('ADMIN', 'SELLER'),
+  authorize('ADMIN', 'SELLER', 'CUSTOMER'),
   validate({ params: productIdParamSchema }),
   productController.getById
 );

@@ -4,6 +4,9 @@ import { User } from '../../models/User.js';
 import { Product } from '../../models/Product.js';
 import { UserProduct } from '../../models/UserProduct.js';
 import { Sale } from '../../models/Sale.js';
+import { Customer } from '../../models/Customer.js';
+import { Invoice } from '../../models/Invoice.js';
+import { InventoryTransaction } from '../../models/InventoryTransaction.js';
 import { toApi } from '../../utils/mongooseHelpers.js';
 
 const sumField = async (Model, match, field) => {
@@ -70,6 +73,31 @@ const mapSellerSale = (doc) => {
   };
 };
 
+const getTopSellingProducts = async (limit = 5) => {
+  const rows = await Sale.aggregate([
+    { $group: { _id: '$productId', unitsSold: { $sum: '$quantity' }, revenue: { $sum: '$revenue' } } },
+    { $sort: { unitsSold: -1 } },
+    { $limit: limit },
+    {
+      $lookup: {
+        from: 'products',
+        localField: '_id',
+        foreignField: '_id',
+        as: 'product',
+      },
+    },
+    { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+  ]);
+
+  return rows.map((row) => ({
+    productId: row._id,
+    title: row.product?.title ?? 'Unknown product',
+    sku: row.product?.sku ?? null,
+    unitsSold: row.unitsSold,
+    revenue: row.revenue,
+  }));
+};
+
 const dashboardRepository = {
   async getAdminStats() {
     const [
@@ -83,6 +111,10 @@ const dashboardRepository = {
       lowStock,
       revenueAgg,
       unitsSoldAgg,
+      customers,
+      invoices,
+      outstandingDueAgg,
+      topSellingProducts,
     ] = await Promise.all([
       Country.countDocuments(),
       Branch.countDocuments(),
@@ -94,6 +126,10 @@ const dashboardRepository = {
       UserProduct.countDocuments({ quantity: { $lte: 5 } }),
       sumField(Sale, {}, 'revenue'),
       sumField(Sale, {}, 'quantity'),
+      Customer.countDocuments(),
+      Invoice.countDocuments(),
+      sumField(Invoice, { status: 'CONFIRMED' }, 'dueAmount'),
+      getTopSellingProducts(),
     ]);
 
     const stockByCountry = await Country.find().sort({ name: 1 }).lean();
@@ -164,21 +200,36 @@ const dashboardRepository = {
         unitsSold: unitsSoldAgg.total,
         salesCount: revenueAgg.count,
         lowStockAssignments: lowStock,
+        customers,
+        invoices,
+        outstandingDue: outstandingDueAgg.total,
       },
       countryBreakdown,
+      topSellingProducts,
       recentSales: recentSaleDocs.map(mapAdminSale),
     };
   },
 
   async getSellerStats(userId) {
-    const [assignments, stockAgg, lowStock, revenueAgg, unitsSoldAgg] =
-      await Promise.all([
-        UserProduct.countDocuments({ userId }),
-        sumField(UserProduct, { userId }, 'quantity'),
-        UserProduct.countDocuments({ userId, quantity: { $lte: 5 } }),
-        sumField(Sale, { userId }, 'revenue'),
-        sumField(Sale, { userId }, 'quantity'),
-      ]);
+    const [
+      assignments,
+      stockAgg,
+      lowStock,
+      revenueAgg,
+      unitsSoldAgg,
+      receivedUnitsAgg,
+      invoiceCount,
+      pendingInvoicesDueAgg,
+    ] = await Promise.all([
+      UserProduct.countDocuments({ userId }),
+      sumField(UserProduct, { userId }, 'quantity'),
+      UserProduct.countDocuments({ userId, quantity: { $lte: 5 } }),
+      sumField(Sale, { userId }, 'revenue'),
+      sumField(Sale, { userId }, 'quantity'),
+      sumField(InventoryTransaction, { userId, type: 'RECEIVED' }, 'changeQuantity'),
+      Invoice.countDocuments({ sellerId: userId }),
+      sumField(Invoice, { sellerId: userId, status: 'CONFIRMED' }, 'dueAmount'),
+    ]);
 
     const recentSaleDocs = await Sale.find({ userId })
       .sort({ createdAt: -1 })
@@ -193,8 +244,47 @@ const dashboardRepository = {
         unitsSold: unitsSoldAgg.total,
         salesCount: revenueAgg.count,
         lowStockProducts: lowStock,
+        receivedUnits: receivedUnitsAgg.total,
+        invoiceCount,
+        pendingInvoicesDue: pendingInvoicesDueAgg.total,
       },
       recentSales: recentSaleDocs.map(mapSellerSale),
+    };
+  },
+
+  /** Customer portal: read-only catalog snapshot (name/price/available stock only). */
+  async getCustomerStats() {
+    const [availableProducts, stockAgg] = await Promise.all([
+      Product.countDocuments(),
+      sumField(UserProduct, {}, 'quantity'),
+    ]);
+
+    const productDocs = await Product.find().sort({ createdAt: -1 }).limit(12);
+    const productIds = productDocs.map((p) => p._id);
+    const stockRows = await UserProduct.aggregate([
+      { $match: { productId: { $in: productIds } } },
+      { $group: { _id: '$productId', total: { $sum: '$quantity' } } },
+    ]);
+    const stockMap = new Map(stockRows.map((r) => [r._id, r.total]));
+
+    const products = productDocs.map((p) => {
+      const json = toApi(p);
+      return {
+        id: json.id,
+        title: json.title,
+        sku: json.sku,
+        price: json.price,
+        imageUrl: json.imageUrl,
+        availableQuantity: stockMap.get(json.id) ?? 0,
+      };
+    });
+
+    return {
+      totals: {
+        availableProducts,
+        totalStockAcrossCatalog: stockAgg.total,
+      },
+      products,
     };
   },
 };
