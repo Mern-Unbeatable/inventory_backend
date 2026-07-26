@@ -8,6 +8,60 @@ const assertOwnership = (invoice, requester) => {
   return invoice;
 };
 
+/**
+ * Ensures invoice line items are unique, assigned to the seller, and within stock.
+ * Used on create/update (draft) so invalid invoices never enter the system;
+ * confirm still re-checks atomically at stock deduction time.
+ */
+const assertSellerStockForItems = async (sellerId, items) => {
+  const productIds = items.map((item) => item.productId);
+  const uniqueIds = new Set(productIds);
+  if (uniqueIds.size !== productIds.length) {
+    throw ApiError.badRequest('Duplicate products are not allowed on an invoice', [
+      { path: 'items', message: 'Each product may appear only once' },
+    ]);
+  }
+
+  const assignments = await invoiceRepository.findSellerAssignments(
+    sellerId,
+    productIds
+  );
+  const stockByProduct = new Map(
+    assignments.map((row) => [row.productId, row.quantity])
+  );
+
+  const errors = [];
+  items.forEach((item, index) => {
+    if (!stockByProduct.has(item.productId)) {
+      errors.push({
+        path: `items.${index}.productId`,
+        message: 'Product is not assigned to this seller',
+      });
+      return;
+    }
+
+    const available = stockByProduct.get(item.productId);
+    if (available <= 0) {
+      errors.push({
+        path: `items.${index}.productId`,
+        message: 'Product is out of stock for this seller',
+      });
+      return;
+    }
+
+    if (item.quantity > available) {
+      errors.push({
+        path: `items.${index}.quantity`,
+        message: `Quantity exceeds available stock (${available})`,
+      });
+    }
+  });
+
+  if (errors.length) {
+    throw ApiError.badRequest('Invoice items failed inventory validation', errors);
+  }
+};
+
 const invoiceService = {
   async create(payload, requester) {
     const customer = await invoiceRepository.customerExists(payload.customerId);
@@ -39,6 +93,8 @@ const invoiceService = {
         { path: 'items', message: `Unknown product id(s): ${error.productIds.join(', ')}` },
       ]);
     }
+
+    await assertSellerStockForItems(sellerId, payload.items);
 
     return invoiceRepository.createDraft({
       customerId: payload.customerId,
@@ -87,6 +143,7 @@ const invoiceService = {
           { path: 'items', message: `Unknown product id(s): ${error.productIds.join(', ')}` },
         ]);
       }
+      await assertSellerStockForItems(invoice.sellerId, payload.items);
       return invoiceRepository.replaceItems(id, lineItems, payload.notes);
     }
 
@@ -133,6 +190,27 @@ const invoiceService = {
       throw ApiError.badRequest('Only draft invoices can be deleted');
     }
     return invoiceRepository.delete(id);
+  },
+
+  /**
+   * Loads PDF data after enforcing the same ownership rules as getById
+   * (ADMIN: any invoice; SELLER: own invoices only).
+   */
+  async getPdfPayload(id, requester) {
+    await this.getById(id, requester);
+
+    const context = await invoiceRepository.findPdfContext(id);
+    if (!context) {
+      throw ApiError.notFound('Invoice not found');
+    }
+
+    return {
+      filename: `${context.invoice.invoiceNumber}.pdf`,
+      invoice: context.invoice,
+      customer: context.customer,
+      seller: context.seller,
+      payments: context.payments,
+    };
   },
 };
 

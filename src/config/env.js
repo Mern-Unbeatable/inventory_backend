@@ -26,6 +26,14 @@ const env = {
     publicPath: process.env.UPLOAD_PUBLIC_PATH || '/uploads',
     maxFileSize: Number(process.env.UPLOAD_MAX_FILE_SIZE) || 2 * 1024 * 1024,
   },
+  company: {
+    name: process.env.COMPANY_NAME || 'Inventory Management',
+    address: process.env.COMPANY_ADDRESS || '',
+    phone: process.env.COMPANY_PHONE || '',
+    email: process.env.COMPANY_EMAIL || '',
+    logoPath: process.env.COMPANY_LOGO_PATH || '',
+    footer: process.env.COMPANY_FOOTER || 'Thank you for your business.',
+  },
 };
 
 export default env;

@@ -78,6 +78,22 @@ const invoiceRepository = {
     return { lineItems };
   },
 
+  /**
+   * Returns seller inventory rows for the given product ids.
+   * Used to validate assignment + available quantity before draft create/update.
+   */
+  async findSellerAssignments(sellerId, productIds) {
+    const rows = await UserProduct.find({
+      userId: sellerId,
+      productId: { $in: productIds },
+    }).select('productId quantity');
+
+    return rows.map((row) => ({
+      productId: String(row.productId),
+      quantity: row.quantity,
+    }));
+  },
+
   async createDraft({ customerId, sellerId, notes, lineItems }) {
     const session = await mongoose.startSession();
     try {
@@ -328,6 +344,73 @@ const invoiceRepository = {
     const customer = await Customer.findById(customerId).select('name email');
     if (!customer) return null;
     return { id: customer._id, name: customer.name, email: customer.email };
+  },
+
+  /**
+   * Rich context for PDF generation only — does not change getById API shape.
+   * Includes customer address, seller branch/country, line items, and payments.
+   */
+  async findPdfContext(id) {
+    const invoice = await this.findById(id);
+    if (!invoice) return null;
+
+    const [customerDoc, sellerDoc, paymentDocs] = await Promise.all([
+      Customer.findById(invoice.customerId).select('name email phone address'),
+      User.findById(invoice.sellerId)
+        .select('name email branchId')
+        .populate({
+          path: 'branchId',
+          select: 'name code countryId',
+          populate: { path: 'countryId', select: 'name code' },
+        }),
+      Payment.find({ invoiceId: id }).sort({ paymentDate: 1, createdAt: 1 }),
+    ]);
+
+    const branchDoc =
+      sellerDoc?.branchId && typeof sellerDoc.branchId === 'object'
+        ? sellerDoc.branchId
+        : null;
+    const countryDoc =
+      branchDoc?.countryId && typeof branchDoc.countryId === 'object'
+        ? branchDoc.countryId
+        : null;
+
+    const branch = branchDoc
+      ? {
+          id: branchDoc._id,
+          name: branchDoc.name,
+          code: branchDoc.code,
+          country: countryDoc
+            ? {
+                id: countryDoc._id,
+                name: countryDoc.name,
+                code: countryDoc.code,
+              }
+            : null,
+        }
+      : null;
+
+    return {
+      invoice,
+      customer: customerDoc
+        ? {
+            id: customerDoc._id,
+            name: customerDoc.name,
+            email: customerDoc.email,
+            phone: customerDoc.phone,
+            address: customerDoc.address,
+          }
+        : invoice.customer,
+      seller: sellerDoc
+        ? {
+            id: sellerDoc._id,
+            name: sellerDoc.name,
+            email: sellerDoc.email,
+            branch,
+          }
+        : invoice.seller,
+      payments: paymentDocs.map((doc) => toApi(doc)),
+    };
   },
 };
 

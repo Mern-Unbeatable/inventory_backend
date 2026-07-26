@@ -30,6 +30,14 @@ router.get(
   invoiceController.list
 );
 
+// PDF download — registered before bare /:id for clarity; ownership in service
+router.get(
+  '/:id/pdf',
+  authorize('ADMIN', 'SELLER'),
+  validate({ params: invoiceIdParamSchema }),
+  invoiceController.downloadPdf
+);
+
 router.get(
   '/:id',
   authorize('ADMIN', 'SELLER'),

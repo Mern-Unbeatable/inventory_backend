@@ -12,12 +12,22 @@ const invoiceItemInput = z.object({
   quantity: z.coerce.number().int().positive('Quantity must be at least 1'),
 });
 
-export const createInvoiceSchema = z.object({
-  customerId: uuid,
-  sellerId: uuid.optional(),
-  items: z.array(invoiceItemInput).min(1, 'At least one item is required'),
-  notes: z.preprocess(emptyToUndefined, z.string().max(2000).optional()),
-});
+const noDuplicateProducts = (items) => {
+  const ids = items.map((item) => item.productId);
+  return new Set(ids).size === ids.length;
+};
+
+export const createInvoiceSchema = z
+  .object({
+    customerId: uuid,
+    sellerId: uuid.optional(),
+    items: z.array(invoiceItemInput).min(1, 'At least one item is required'),
+    notes: z.preprocess(emptyToUndefined, z.string().max(2000).optional()),
+  })
+  .refine((data) => noDuplicateProducts(data.items), {
+    message: 'Duplicate products are not allowed on an invoice',
+    path: ['items'],
+  });
 
 export const updateInvoiceSchema = z
   .object({
@@ -26,6 +36,10 @@ export const updateInvoiceSchema = z
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: 'At least one field is required',
+  })
+  .refine((data) => !data.items || noDuplicateProducts(data.items), {
+    message: 'Duplicate products are not allowed on an invoice',
+    path: ['items'],
   });
 
 export const invoiceIdParamSchema = z.object({ id: uuid });
