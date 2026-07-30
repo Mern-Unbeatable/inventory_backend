@@ -7,16 +7,18 @@ const emptyToUndefined = (value) => {
   return value;
 };
 
-export const createCustomerSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters').max(150),
-  email: z.preprocess(
-    emptyToUndefined,
-    z.string().email('Valid email is required').optional()
-  ),
-  phone: z.preprocess(emptyToUndefined, z.string().max(30).optional()),
-  address: z.preprocess(emptyToUndefined, z.string().max(300).optional()),
-  notes: z.preprocess(emptyToUndefined, z.string().max(2000).optional()),
-});
+export const createCustomerSchema = z
+  .object({
+    name: z.string().min(2, 'Name must be at least 2 characters').max(150),
+    email: z.preprocess(
+      emptyToUndefined,
+      z.string().email('Valid email is required').optional()
+    ),
+    phone: z.preprocess(emptyToUndefined, z.string().max(30).optional()),
+    address: z.preprocess(emptyToUndefined, z.string().max(300).optional()),
+    notes: z.preprocess(emptyToUndefined, z.string().max(2000).optional()),
+  })
+  .strict();
 
 export const updateCustomerSchema = z
   .object({
@@ -29,6 +31,7 @@ export const updateCustomerSchema = z
     address: z.preprocess(emptyToUndefined, z.string().max(300).optional().nullable()),
     notes: z.preprocess(emptyToUndefined, z.string().max(2000).optional().nullable()),
   })
+  .strict()
   .refine((data) => Object.keys(data).length > 0, {
     message: 'At least one field is required',
   });

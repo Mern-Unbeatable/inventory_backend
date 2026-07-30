@@ -1,6 +1,7 @@
 import dns from 'node:dns';
 import mongoose from 'mongoose';
 import env from './env.js';
+import { ensureCustomerIndexes } from '../modules/customer/customer.indexes.js';
 
 mongoose.set('strictQuery', true);
 
@@ -30,6 +31,8 @@ export const connectDatabase = async () => {
       serverSelectionTimeoutMS: 15_000,
       family: 4,
     });
+
+    await ensureCustomerIndexes();
   } catch (error) {
     if (error?.code === 'ECONNREFUSED' || error?.message?.includes('querySrv')) {
       const hint = [

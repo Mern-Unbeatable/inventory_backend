@@ -3,6 +3,28 @@ import { User } from '../../models/User.js';
 import ApiError from '../../utils/ApiError.js';
 import { hashPassword } from '../../utils/bcrypt.js';
 
+const buildCreatePayload = (payload, requester) => {
+  const data = {
+    name: payload.name.trim(),
+    createdBy: requester.id,
+  };
+
+  if (payload.email) {
+    data.email = payload.email.toLowerCase();
+  }
+  if (payload.phone) {
+    data.phone = payload.phone;
+  }
+  if (payload.address) {
+    data.address = payload.address;
+  }
+  if (payload.notes) {
+    data.notes = payload.notes;
+  }
+
+  return data;
+};
+
 const customerService = {
   async create(payload, requester) {
     if (payload.email) {
@@ -12,14 +34,7 @@ const customerService = {
       }
     }
 
-    return customerRepository.create({
-      name: payload.name.trim(),
-      email: payload.email ? payload.email.toLowerCase() : null,
-      phone: payload.phone ?? null,
-      address: payload.address ?? null,
-      notes: payload.notes ?? null,
-      createdBy: requester.id,
-    });
+    return customerRepository.create(buildCreatePayload(payload, requester));
   },
 
   async list(query) {
@@ -155,6 +170,11 @@ const customerService = {
       role: 'CUSTOMER',
       branchId: null,
     });
+
+    const alreadyLinked = await customerRepository.findByUserId(user._id);
+    if (alreadyLinked && alreadyLinked.id !== id) {
+      throw ApiError.conflict('This portal user is already linked to another customer');
+    }
 
     return customerRepository.linkPortalAccount(id, user._id);
   },

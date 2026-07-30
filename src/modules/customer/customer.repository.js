@@ -25,6 +25,11 @@ const customerRepository = {
     return mapCustomer(customer);
   },
 
+  async findByUserId(userId) {
+    const customer = await Customer.findOne({ userId });
+    return mapCustomer(customer);
+  },
+
   async findMany({ filters = {}, skip = 0, take = 20 }) {
     const query = {};
 
