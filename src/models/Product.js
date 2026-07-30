@@ -9,6 +9,12 @@ const productSchema = new mongoose.Schema(
     description: { type: String, default: null },
     price: { type: Number, default: 0 },
     imageUrl: { type: String, default: null },
+    /**
+     * Product ownership:
+     * - null  → catalog / admin-managed master product
+     * - User  → seller who created (and owns) the product
+     */
+    ownerId: { type: String, ref: 'User', default: null, index: true },
   },
   { timestamps: true, collection: 'products' }
 );

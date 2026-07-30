@@ -1,4 +1,5 @@
 import productRepository from './product.repository.js';
+import inventoryRepository from '../inventory/inventory.repository.js';
 import ApiError from '../../utils/ApiError.js';
 import { deleteStoredFile } from '../../utils/fileStorage.js';
 
@@ -14,22 +15,47 @@ const mapSellerProduct = (product) => {
   };
 };
 
+/** Never accept ownership changes from the client body. */
+const stripOwnershipFields = (payload = {}) => {
+  const { ownerId: _ownerId, owner: _owner, ...safe } = payload;
+  return safe;
+};
+
 const productService = {
-  async create(payload, uploadedFile) {
-    const sku = payload.sku.trim().toUpperCase();
+  async create(payload, uploadedFile, requester) {
+    const safePayload = stripOwnershipFields(payload);
+    const sku = safePayload.sku.trim().toUpperCase();
     const existing = await productRepository.findBySku(sku);
     if (existing) {
       throw ApiError.conflict('SKU already exists');
     }
 
+    const isSeller = requester?.role === 'SELLER';
+    const ownerId = isSeller ? requester.id : null;
+
     try {
-      return await productRepository.create({
-        title: payload.title.trim(),
+      const product = await productRepository.create({
+        title: safePayload.title.trim(),
         sku,
-        description: payload.description ?? null,
-        price: payload.price ?? 0,
+        description: safePayload.description ?? null,
+        price: safePayload.price ?? 0,
         imageUrl: uploadedFile?.publicPath ?? null,
+        ownerId,
       });
+
+      // Seller-created products must appear in their inventory list immediately.
+      if (isSeller) {
+        await inventoryRepository.assign({
+          userId: requester.id,
+          productId: product.id,
+          quantity: 0,
+        });
+        return mapSellerProduct(
+          await productRepository.findByIdForSeller(product.id, requester.id)
+        );
+      }
+
+      return product;
     } catch (error) {
       if (uploadedFile?.publicPath) {
         deleteStoredFile(uploadedFile.publicPath);
@@ -91,26 +117,51 @@ const productService = {
     return product;
   },
 
-  async update(id, payload, uploadedFile) {
-    const existing = await this.getById(id, { role: 'ADMIN' });
+  async update(id, payload, uploadedFile, requester) {
+    const safePayload = stripOwnershipFields(payload);
+    const isSeller = requester?.role === 'SELLER';
 
-    if (payload.sku) {
-      const sku = payload.sku.trim().toUpperCase();
+    let existing;
+    if (isSeller) {
+      existing = await productRepository.findById(id);
+      if (!existing) {
+        throw ApiError.notFound('Product not found');
+      }
+      if (!existing.ownerId || existing.ownerId !== requester.id) {
+        throw ApiError.forbidden(
+          'You can only update products you own. Catalog products cannot be edited by sellers.'
+        );
+      }
+      // Seller must still be assigned (their own create auto-assigns; keep consistent).
+      const assigned = await productRepository.findByIdForSeller(id, requester.id);
+      if (!assigned) {
+        throw ApiError.forbidden('Product is not available in your inventory');
+      }
+    } else {
+      existing = await this.getById(id, { role: 'ADMIN' });
+    }
+
+    if (safePayload.sku) {
+      const sku = safePayload.sku.trim().toUpperCase();
       const skuOwner = await productRepository.findBySku(sku);
       if (skuOwner && skuOwner.id !== id) {
         throw ApiError.conflict('SKU already exists');
       }
-      payload.sku = sku;
+      safePayload.sku = sku;
     }
 
     const data = {
-      ...(payload.title !== undefined ? { title: payload.title.trim() } : {}),
-      ...(payload.sku !== undefined ? { sku: payload.sku } : {}),
-      ...(payload.description !== undefined ? { description: payload.description } : {}),
-      ...(payload.price !== undefined ? { price: payload.price } : {}),
+      ...(safePayload.title !== undefined
+        ? { title: safePayload.title.trim() }
+        : {}),
+      ...(safePayload.sku !== undefined ? { sku: safePayload.sku } : {}),
+      ...(safePayload.description !== undefined
+        ? { description: safePayload.description }
+        : {}),
+      ...(safePayload.price !== undefined ? { price: safePayload.price } : {}),
     };
 
-    const removeImage = Boolean(payload.removeImage);
+    const removeImage = Boolean(safePayload.removeImage);
     let previousImageUrl = null;
 
     if (uploadedFile?.publicPath) {
@@ -126,11 +177,20 @@ const productService = {
     }
 
     try {
-      const updated = await productRepository.update(id, data);
-      if (previousImageUrl && previousImageUrl !== updated.imageUrl) {
-        deleteStoredFile(previousImageUrl);
+      await productRepository.update(id, data);
+      if (previousImageUrl) {
+        const updatedCheck = await productRepository.findById(id);
+        if (previousImageUrl !== updatedCheck?.imageUrl) {
+          deleteStoredFile(previousImageUrl);
+        }
       }
-      return updated;
+
+      if (isSeller) {
+        return mapSellerProduct(
+          await productRepository.findByIdForSeller(id, requester.id)
+        );
+      }
+      return productRepository.findById(id);
     } catch (error) {
       if (uploadedFile?.publicPath) {
         deleteStoredFile(uploadedFile.publicPath);

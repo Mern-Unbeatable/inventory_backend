@@ -4,7 +4,11 @@ import catchAsync from '../../utils/catchAsync.js';
 
 const productController = {
   create: catchAsync(async (req, res) => {
-    const data = await productService.create(req.body, req.uploadedFile);
+    const data = await productService.create(
+      req.body,
+      req.uploadedFile,
+      req.user
+    );
     return ApiResponse.created(res, data, 'Product created successfully');
   }),
 
@@ -22,7 +26,8 @@ const productController = {
     const data = await productService.update(
       req.params.id,
       req.body,
-      req.uploadedFile
+      req.uploadedFile,
+      req.user
     );
     return ApiResponse.success(res, data, 'Product updated successfully');
   }),

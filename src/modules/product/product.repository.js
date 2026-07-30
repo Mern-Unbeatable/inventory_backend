@@ -1,16 +1,36 @@
 import { Product } from '../../models/Product.js';
+import { User } from '../../models/User.js';
 import { UserProduct } from '../../models/UserProduct.js';
 import { Sale } from '../../models/Sale.js';
 import { toApi } from '../../utils/mongooseHelpers.js';
 import { containsInsensitive } from '../../utils/queryHelpers.js';
 import { deleteStoredFile } from '../../utils/fileStorage.js';
 
+const attachOwner = async (json) => {
+  if (!json) return null;
+  if (!json.ownerId) {
+    json.owner = null;
+    return json;
+  }
+
+  const owner = await User.findById(json.ownerId).select('name email role');
+  json.owner = owner
+    ? {
+        id: owner._id,
+        name: owner.name,
+        email: owner.email,
+        role: owner.role,
+      }
+    : null;
+  return json;
+};
+
 const withAssignedCount = async (doc) => {
   if (!doc) return null;
   const json = toApi(doc);
   const assignedUsers = await UserProduct.countDocuments({ productId: json.id });
   json._count = { assignedUsers };
-  return json;
+  return attachOwner(json);
 };
 
 const withSellerAssignment = async (doc, sellerId) => {
@@ -24,7 +44,7 @@ const withSellerAssignment = async (doc, sellerId) => {
   json.assignedUsers = assignment
     ? [{ id: assignment._id, quantity: assignment.quantity, updatedAt: assignment.updatedAt }]
     : [];
-  return json;
+  return attachOwner(json);
 };
 
 /** Customer-facing shape: only name/sku/price/image + total stock company-wide (no per-seller detail). */

@@ -15,16 +15,16 @@ const router = Router();
 
 router.use(authenticate);
 
-// Admin: full master product CRUD (JSON or multipart/form-data with optional image)
+// Admin + Seller: create product (seller owns + auto-assigns to their inventory)
 router.post(
   '/',
-  authorize('ADMIN'),
+  authorize('ADMIN', 'SELLER'),
   uploadProductImage,
   validate({ body: createProductSchema }),
   productController.create
 );
 
-// Admin: full catalog. Seller: only products assigned by admin.
+// Admin: full catalog. Seller: only products assigned by admin / self-created.
 // Customer: read-only catalog (title/price/availableQuantity only).
 router.get(
   '/',
@@ -40,14 +40,16 @@ router.get(
   productController.getById
 );
 
+// Admin: any product. Seller: only products they own (enforced in service).
 router.patch(
   '/:id',
-  authorize('ADMIN'),
+  authorize('ADMIN', 'SELLER'),
   uploadProductImage,
   validate({ params: productIdParamSchema, body: updateProductSchema }),
   productController.update
 );
 
+// Admin only — sellers cannot delete products
 router.delete(
   '/:id',
   authorize('ADMIN'),
