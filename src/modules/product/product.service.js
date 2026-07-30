@@ -1,5 +1,6 @@
 import productRepository from './product.repository.js';
 import inventoryRepository from '../inventory/inventory.repository.js';
+import customerRepository from '../customer/customer.repository.js';
 import ApiError from '../../utils/ApiError.js';
 import { deleteStoredFile } from '../../utils/fileStorage.js';
 
@@ -19,6 +20,11 @@ const mapSellerProduct = (product) => {
 const stripOwnershipFields = (payload = {}) => {
   const { ownerId: _ownerId, owner: _owner, ...safe } = payload;
   return safe;
+};
+
+const resolveCustomerCountryId = async (requester) => {
+  if (requester?.role !== 'CUSTOMER') return null;
+  return customerRepository.findCountryIdByUserId(requester.id);
 };
 
 const productService = {
@@ -69,6 +75,21 @@ const productService = {
     const skip = (page - 1) * limit;
     const isSeller = requester?.role === 'SELLER';
     const isCustomer = requester?.role === 'CUSTOMER';
+    const customerCountryId = isCustomer
+      ? await resolveCustomerCountryId(requester)
+      : null;
+
+    if (isCustomer && !customerCountryId) {
+      return {
+        items: [],
+        meta: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 1,
+        },
+      };
+    }
 
     const { items, total } = await productRepository.findMany({
       filters: {
@@ -80,6 +101,7 @@ const productService = {
       take: limit,
       sellerId: isSeller ? requester.id : null,
       forCustomer: isCustomer,
+      countryId: customerCountryId,
     });
 
     return {
@@ -103,7 +125,10 @@ const productService = {
     }
 
     if (requester?.role === 'CUSTOMER') {
-      const product = await productRepository.findByIdForCustomer(id);
+      const customerCountryId = await resolveCustomerCountryId(requester);
+      const product = await productRepository.findByIdForCustomer(id, {
+        countryId: customerCountryId,
+      });
       if (!product) {
         throw ApiError.notFound('Product not found');
       }

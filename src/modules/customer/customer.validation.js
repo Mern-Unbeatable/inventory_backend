@@ -17,6 +17,8 @@ export const createCustomerSchema = z
     phone: z.preprocess(emptyToUndefined, z.string().max(30).optional()),
     address: z.preprocess(emptyToUndefined, z.string().max(300).optional()),
     notes: z.preprocess(emptyToUndefined, z.string().max(2000).optional()),
+    countryId: uuid,
+    branchId: uuid,
   })
   .strict();
 
@@ -30,11 +32,22 @@ export const updateCustomerSchema = z
     phone: z.preprocess(emptyToUndefined, z.string().max(30).optional().nullable()),
     address: z.preprocess(emptyToUndefined, z.string().max(300).optional().nullable()),
     notes: z.preprocess(emptyToUndefined, z.string().max(2000).optional().nullable()),
+    countryId: uuid.optional(),
+    branchId: uuid.optional(),
   })
   .strict()
   .refine((data) => Object.keys(data).length > 0, {
     message: 'At least one field is required',
-  });
+  })
+  .refine(
+    (data) =>
+      (data.countryId === undefined && data.branchId === undefined) ||
+      (data.countryId !== undefined && data.branchId !== undefined),
+    {
+      message: 'countryId and branchId must be updated together',
+      path: ['branchId'],
+    }
+  );
 
 export const createPortalAccountSchema = z.object({
   email: z.string().email('Valid email is required'),
@@ -47,6 +60,8 @@ export const listCustomersQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().optional(),
+  countryId: uuid.optional(),
+  branchId: uuid.optional(),
 });
 
 export const listCustomerInvoicesQuerySchema = z.object({

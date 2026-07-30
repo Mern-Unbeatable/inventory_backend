@@ -72,6 +72,9 @@ const invoiceService = {
     let sellerId;
     if (requester.role === 'SELLER') {
       sellerId = requester.id;
+      if (customer.branchId !== requester.branchId) {
+        throw ApiError.forbidden('You can only invoice customers assigned to your branch');
+      }
     } else {
       if (!payload.sellerId) {
         throw ApiError.badRequest('sellerId is required when an admin creates an invoice');

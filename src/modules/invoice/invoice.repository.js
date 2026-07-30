@@ -341,9 +341,14 @@ const invoiceRepository = {
   },
 
   async customerExists(customerId) {
-    const customer = await Customer.findById(customerId).select('name email');
+    const customer = await Customer.findById(customerId).select('name email branchId');
     if (!customer) return null;
-    return { id: customer._id, name: customer.name, email: customer.email };
+    return {
+      id: customer._id,
+      name: customer.name,
+      email: customer.email,
+      branchId: customer.branchId,
+    };
   },
 
   /**

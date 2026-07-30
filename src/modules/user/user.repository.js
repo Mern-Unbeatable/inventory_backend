@@ -59,7 +59,11 @@ const userRepository = {
   async findMany({ filters = {}, skip = 0, take = 20 }) {
     const query = {};
 
-    if (filters.role) query.role = filters.role;
+    if (filters.roles) {
+      query.role = { $in: filters.roles };
+    } else if (filters.role) {
+      query.role = filters.role;
+    }
     if (filters.branchId) query.branchId = filters.branchId;
 
     if (filters.countryId) {

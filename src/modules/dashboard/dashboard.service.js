@@ -1,4 +1,5 @@
 import dashboardRepository from './dashboard.repository.js';
+import customerRepository from '../customer/customer.repository.js';
 
 const dashboardService = {
   async getOverview(requester) {
@@ -8,7 +9,8 @@ const dashboardService = {
     }
 
     if (requester.role === 'CUSTOMER') {
-      const stats = await dashboardRepository.getCustomerStats();
+      const countryId = await customerRepository.findCountryIdByUserId(requester.id);
+      const stats = await dashboardRepository.getCustomerStats(countryId);
       return { role: 'CUSTOMER', ...stats };
     }
 

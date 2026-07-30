@@ -2,11 +2,24 @@ import customerRepository from './customer.repository.js';
 import { User } from '../../models/User.js';
 import ApiError from '../../utils/ApiError.js';
 import { hashPassword } from '../../utils/bcrypt.js';
+import {
+  assertCustomerAccess,
+  validateBranchAndCountry,
+} from './customer.access.js';
 
-const buildCreatePayload = (payload, requester) => {
+const buildCreatePayload = async (payload, requester) => {
+  await validateBranchAndCountry({
+    countryId: payload.countryId,
+    branchId: payload.branchId,
+    requester,
+  });
+
   const data = {
     name: payload.name.trim(),
+    countryId: payload.countryId,
+    branchId: payload.branchId,
     createdBy: requester.id,
+    createdByRole: requester.role,
   };
 
   if (payload.email) {
@@ -25,6 +38,11 @@ const buildCreatePayload = (payload, requester) => {
   return data;
 };
 
+const sellerListFilters = (requester) => {
+  if (requester.role !== 'SELLER') return {};
+  return { branchId: requester.branchId };
+};
+
 const customerService = {
   async create(payload, requester) {
     if (payload.email) {
@@ -34,15 +52,22 @@ const customerService = {
       }
     }
 
-    return customerRepository.create(buildCreatePayload(payload, requester));
+    const data = await buildCreatePayload(payload, requester);
+    return customerRepository.create(data);
   },
 
-  async list(query) {
-    const { page, limit, search } = query;
+  async list(query, requester) {
+    const { page, limit, search, countryId, branchId } = query;
     const skip = (page - 1) * limit;
 
+    const scopeFilters = sellerListFilters(requester);
+
     const { items, total } = await customerRepository.findMany({
-      filters: { search },
+      filters: {
+        search,
+        countryId: scopeFilters.branchId ? undefined : countryId,
+        branchId: scopeFilters.branchId || branchId,
+      },
       skip,
       take: limit,
     });
@@ -53,21 +78,17 @@ const customerService = {
     };
   },
 
-  async getById(id) {
+  async getById(id, requester) {
     const customer = await customerRepository.findById(id);
-    if (!customer) {
-      throw ApiError.notFound('Customer not found');
-    }
+    assertCustomerAccess(customer, requester);
 
     const outstandingBalance = await customerRepository.getOutstandingBalance(id);
     return { ...customer, outstandingBalance };
   },
 
-  async update(id, payload) {
+  async update(id, payload, requester) {
     const customer = await customerRepository.findById(id);
-    if (!customer) {
-      throw ApiError.notFound('Customer not found');
-    }
+    assertCustomerAccess(customer, requester);
 
     const data = {};
     if (payload.name !== undefined) data.name = payload.name.trim();
@@ -84,6 +105,24 @@ const customerService = {
         }
       }
       data.email = email;
+    }
+
+    if (payload.countryId !== undefined || payload.branchId !== undefined) {
+      if (requester.role !== 'ADMIN') {
+        throw ApiError.forbidden('Only admins can change a customer country or branch');
+      }
+
+      const nextCountryId = payload.countryId ?? customer.countryId;
+      const nextBranchId = payload.branchId ?? customer.branchId;
+
+      await validateBranchAndCountry({
+        countryId: nextCountryId,
+        branchId: nextBranchId,
+        requester,
+      });
+
+      data.countryId = nextCountryId;
+      data.branchId = nextBranchId;
     }
 
     return customerRepository.update(id, data);
@@ -105,11 +144,9 @@ const customerService = {
     return customerRepository.delete(id);
   },
 
-  async getInvoices(id, query) {
+  async getInvoices(id, query, requester) {
     const customer = await customerRepository.findById(id);
-    if (!customer) {
-      throw ApiError.notFound('Customer not found');
-    }
+    assertCustomerAccess(customer, requester);
 
     const { page, limit, status } = query;
     const skip = (page - 1) * limit;
@@ -126,11 +163,9 @@ const customerService = {
     };
   },
 
-  async getPurchaseHistory(id, query) {
+  async getPurchaseHistory(id, query, requester) {
     const customer = await customerRepository.findById(id);
-    if (!customer) {
-      throw ApiError.notFound('Customer not found');
-    }
+    assertCustomerAccess(customer, requester);
 
     const { page, limit } = query;
     const skip = (page - 1) * limit;
@@ -177,6 +212,10 @@ const customerService = {
     }
 
     return customerRepository.linkPortalAccount(id, user._id);
+  },
+
+  async resolveCountryIdForPortalUser(userId) {
+    return customerRepository.findCountryIdByUserId(userId);
   },
 };
 

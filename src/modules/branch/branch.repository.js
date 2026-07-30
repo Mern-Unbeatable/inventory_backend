@@ -85,6 +85,7 @@ const branchRepository = {
   async findManyBranches({ filters = {}, skip = 0, take = 20 }) {
     const query = {};
     if (filters.countryId) query.countryId = filters.countryId;
+    if (filters.branchId) query._id = filters.branchId;
     if (filters.search) {
       query.$or = [
         { name: containsInsensitive(filters.search) },

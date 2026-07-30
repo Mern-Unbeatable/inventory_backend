@@ -9,13 +9,13 @@ const branchController = {
     return ApiResponse.created(res, data, 'Country created successfully');
   }),
 
-  listCountries: catchAsync(async (_req, res) => {
-    const data = await branchService.listCountries();
+  listCountries: catchAsync(async (req, res) => {
+    const data = await branchService.listCountries(req.user);
     return ApiResponse.success(res, data, 'Countries fetched successfully');
   }),
 
   getCountry: catchAsync(async (req, res) => {
-    const data = await branchService.getCountry(req.params.id);
+    const data = await branchService.getCountry(req.params.id, req.user);
     return ApiResponse.success(res, data, 'Country fetched successfully');
   }),
 
@@ -36,12 +36,12 @@ const branchController = {
   }),
 
   list: catchAsync(async (req, res) => {
-    const data = await branchService.listBranches(req.query);
+    const data = await branchService.listBranches(req.query, req.user);
     return ApiResponse.success(res, data, 'Branches fetched successfully');
   }),
 
   getById: catchAsync(async (req, res) => {
-    const data = await branchService.getBranch(req.params.id);
+    const data = await branchService.getBranch(req.params.id, req.user);
     return ApiResponse.success(res, data, 'Branch fetched successfully');
   }),
 

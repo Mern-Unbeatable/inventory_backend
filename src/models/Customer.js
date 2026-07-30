@@ -9,9 +9,16 @@ const customerSchema = new mongoose.Schema(
     phone: { type: String, trim: true, default: null },
     address: { type: String, trim: true, default: null },
     notes: { type: String, default: null },
+    countryId: { type: String, required: true, ref: 'Country', index: true },
+    branchId: { type: String, required: true, ref: 'Branch', index: true },
     // Set only when a CRM record is linked to a CUSTOMER-role portal login.
     userId: { type: String, ref: 'User' },
     createdBy: { type: String, required: true, ref: 'User' },
+    createdByRole: {
+      type: String,
+      enum: ['ADMIN', 'SELLER'],
+      required: true,
+    },
   },
   { timestamps: true, collection: 'customers' }
 );

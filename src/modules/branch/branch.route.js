@@ -16,22 +16,35 @@ import {
 /** Country routes — mounted at /api/countries */
 export const countryRoutes = Router();
 
-countryRoutes.use(authenticate, authorize('ADMIN'));
+countryRoutes.use(authenticate);
 
-countryRoutes.post('/', validate({ body: createCountrySchema }), branchController.createCountry);
-countryRoutes.get('/', branchController.listCountries);
+countryRoutes.get(
+  '/',
+  authorize('ADMIN', 'SELLER'),
+  branchController.listCountries
+);
 countryRoutes.get(
   '/:id',
+  authorize('ADMIN', 'SELLER'),
   validate({ params: countryIdParamSchema }),
   branchController.getCountry
 );
+
+countryRoutes.post(
+  '/',
+  authorize('ADMIN'),
+  validate({ body: createCountrySchema }),
+  branchController.createCountry
+);
 countryRoutes.patch(
   '/:id',
+  authorize('ADMIN'),
   validate({ params: countryIdParamSchema, body: updateCountrySchema }),
   branchController.updateCountry
 );
 countryRoutes.delete(
   '/:id',
+  authorize('ADMIN'),
   validate({ params: countryIdParamSchema }),
   branchController.deleteCountry
 );
@@ -39,26 +52,36 @@ countryRoutes.delete(
 /** Branch routes — mounted at /api/branches */
 const branchRoutes = Router();
 
-branchRoutes.use(authenticate, authorize('ADMIN'));
+branchRoutes.use(authenticate);
 
-branchRoutes.post('/', validate({ body: createBranchSchema }), branchController.create);
 branchRoutes.get(
   '/',
+  authorize('ADMIN', 'SELLER'),
   validate({ query: listBranchesQuerySchema }),
   branchController.list
 );
 branchRoutes.get(
   '/:id',
+  authorize('ADMIN', 'SELLER'),
   validate({ params: branchIdParamSchema }),
   branchController.getById
 );
+
+branchRoutes.post(
+  '/',
+  authorize('ADMIN'),
+  validate({ body: createBranchSchema }),
+  branchController.create
+);
 branchRoutes.patch(
   '/:id',
+  authorize('ADMIN'),
   validate({ params: branchIdParamSchema, body: updateBranchSchema }),
   branchController.update
 );
 branchRoutes.delete(
   '/:id',
+  authorize('ADMIN'),
   validate({ params: branchIdParamSchema }),
   branchController.remove
 );

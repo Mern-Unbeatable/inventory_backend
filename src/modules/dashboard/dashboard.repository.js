@@ -7,6 +7,7 @@ import { Sale } from '../../models/Sale.js';
 import { Customer } from '../../models/Customer.js';
 import { Invoice } from '../../models/Invoice.js';
 import { InventoryTransaction } from '../../models/InventoryTransaction.js';
+import { getSellerIdsByCountry } from '../../utils/countryScope.js';
 import { toApi } from '../../utils/mongooseHelpers.js';
 
 const sumField = async (Model, match, field) => {
@@ -252,17 +253,47 @@ const dashboardRepository = {
     };
   },
 
-  /** Customer portal: read-only catalog snapshot (name/price/available stock only). */
-  async getCustomerStats() {
+  /** Customer portal: read-only catalog snapshot scoped to the customer's country. */
+  async getCustomerStats(countryId) {
+    if (!countryId) {
+      return {
+        totals: {
+          availableProducts: 0,
+          totalStockAcrossCatalog: 0,
+        },
+        products: [],
+      };
+    }
+
+    const sellerIds = await getSellerIdsByCountry(countryId);
+    if (!sellerIds.length) {
+      return {
+        totals: {
+          availableProducts: 0,
+          totalStockAcrossCatalog: 0,
+        },
+        products: [],
+      };
+    }
+
+    const productIds = await UserProduct.find({
+      userId: { $in: sellerIds },
+    }).distinct('productId');
+
     const [availableProducts, stockAgg] = await Promise.all([
-      Product.countDocuments(),
-      sumField(UserProduct, {}, 'quantity'),
+      Product.countDocuments({ _id: { $in: productIds } }),
+      UserProduct.aggregate([
+        { $match: { userId: { $in: sellerIds } } },
+        { $group: { _id: null, total: { $sum: '$quantity' } } },
+      ]),
     ]);
 
-    const productDocs = await Product.find().sort({ createdAt: -1 }).limit(12);
-    const productIds = productDocs.map((p) => p._id);
+    const productDocs = await Product.find({ _id: { $in: productIds } })
+      .sort({ createdAt: -1 })
+      .limit(12);
+    const scopedProductIds = productDocs.map((p) => p._id);
     const stockRows = await UserProduct.aggregate([
-      { $match: { productId: { $in: productIds } } },
+      { $match: { productId: { $in: scopedProductIds }, userId: { $in: sellerIds } } },
       { $group: { _id: '$productId', total: { $sum: '$quantity' } } },
     ]);
     const stockMap = new Map(stockRows.map((r) => [r._id, r.total]));
@@ -282,7 +313,7 @@ const dashboardRepository = {
     return {
       totals: {
         availableProducts,
-        totalStockAcrossCatalog: stockAgg.total,
+        totalStockAcrossCatalog: stockAgg[0]?.total ?? 0,
       },
       products,
     };

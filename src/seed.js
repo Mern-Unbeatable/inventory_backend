@@ -325,7 +325,10 @@ async function main() {
     address: 'Bole Road, Addis Ababa, Ethiopia',
     notes: 'Repeat retail buyer — has portal login.',
     userId: customerPortalUser._id,
+    countryId: ethiopia._id,
+    branchId: addisBranch._id,
     createdBy: admin._id,
+    createdByRole: 'ADMIN',
   });
 
   const bezaTrading = await upsertCustomer({
@@ -334,7 +337,10 @@ async function main() {
     phone: '+251-911-000222',
     address: 'Piazza, Addis Ababa, Ethiopia',
     notes: 'Wholesale buyer, pays on credit — no portal login.',
+    countryId: ethiopia._id,
+    branchId: hawassaBranch._id,
     createdBy: admin._id,
+    createdByRole: 'ADMIN',
   });
 
   // ---- Invoices: one editable draft, one confirmed with a partial payment ----

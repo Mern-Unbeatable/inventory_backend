@@ -9,17 +9,17 @@ const customerController = {
   }),
 
   list: catchAsync(async (req, res) => {
-    const data = await customerService.list(req.query);
+    const data = await customerService.list(req.query, req.user);
     return ApiResponse.success(res, data, 'Customers fetched successfully');
   }),
 
   getById: catchAsync(async (req, res) => {
-    const data = await customerService.getById(req.params.id);
+    const data = await customerService.getById(req.params.id, req.user);
     return ApiResponse.success(res, data, 'Customer fetched successfully');
   }),
 
   update: catchAsync(async (req, res) => {
-    const data = await customerService.update(req.params.id, req.body);
+    const data = await customerService.update(req.params.id, req.body, req.user);
     return ApiResponse.success(res, data, 'Customer updated successfully');
   }),
 
@@ -29,12 +29,12 @@ const customerController = {
   }),
 
   getInvoices: catchAsync(async (req, res) => {
-    const data = await customerService.getInvoices(req.params.id, req.query);
+    const data = await customerService.getInvoices(req.params.id, req.query, req.user);
     return ApiResponse.success(res, data, "Customer's invoices fetched successfully");
   }),
 
   getPurchaseHistory: catchAsync(async (req, res) => {
-    const data = await customerService.getPurchaseHistory(req.params.id, req.query);
+    const data = await customerService.getPurchaseHistory(req.params.id, req.query, req.user);
     return ApiResponse.success(res, data, 'Purchase history fetched successfully');
   }),
 

@@ -4,30 +4,78 @@ import { InvoiceItem } from '../../models/InvoiceItem.js';
 import { toApi } from '../../utils/mongooseHelpers.js';
 import { containsInsensitive } from '../../utils/queryHelpers.js';
 
+const customerPopulate = [
+  { path: 'countryId', select: 'name code' },
+  { path: 'branchId', select: 'name code countryId' },
+  { path: 'createdBy', select: 'name email role' },
+];
+
 const mapCustomer = (doc) => {
   if (!doc) return null;
-  return toApi(doc);
+  const json = toApi(doc);
+
+  const country =
+    json.countryId && typeof json.countryId === 'object' ? json.countryId : null;
+  if (country) {
+    json.country = country;
+    json.countryId = country.id;
+  }
+
+  const branch =
+    json.branchId && typeof json.branchId === 'object' ? json.branchId : null;
+  if (branch) {
+    json.branch = {
+      id: branch.id,
+      name: branch.name,
+      code: branch.code,
+      countryId:
+        branch.countryId && typeof branch.countryId === 'object'
+          ? branch.countryId.id
+          : branch.countryId,
+    };
+    json.branchId = branch.id;
+  }
+
+  const creator =
+    json.createdBy && typeof json.createdBy === 'object' ? json.createdBy : null;
+  if (creator) {
+    json.creator = {
+      id: creator.id,
+      name: creator.name,
+      email: creator.email,
+      role: json.createdByRole || creator.role,
+    };
+    json.createdBy = creator.id;
+  }
+
+  return json;
 };
 
 const customerRepository = {
   async create(data) {
     const customer = await Customer.create(data);
-    return mapCustomer(customer);
+    const populated = await Customer.findById(customer._id).populate(customerPopulate);
+    return mapCustomer(populated);
   },
 
   async findById(id) {
-    const customer = await Customer.findById(id);
+    const customer = await Customer.findById(id).populate(customerPopulate);
     return mapCustomer(customer);
   },
 
   async findByEmail(email) {
-    const customer = await Customer.findOne({ email });
+    const customer = await Customer.findOne({ email }).populate(customerPopulate);
     return mapCustomer(customer);
   },
 
   async findByUserId(userId) {
-    const customer = await Customer.findOne({ userId });
+    const customer = await Customer.findOne({ userId }).populate(customerPopulate);
     return mapCustomer(customer);
+  },
+
+  async findCountryIdByUserId(userId) {
+    const customer = await Customer.findOne({ userId }).select('countryId');
+    return customer?.countryId ?? null;
   },
 
   async findMany({ filters = {}, skip = 0, take = 20 }) {
@@ -41,8 +89,20 @@ const customerRepository = {
       ];
     }
 
+    if (filters.branchId) {
+      query.branchId = filters.branchId;
+    }
+
+    if (filters.countryId) {
+      query.countryId = filters.countryId;
+    }
+
     const [rows, total] = await Promise.all([
-      Customer.find(query).sort({ createdAt: -1 }).skip(skip).limit(take),
+      Customer.find(query)
+        .populate(customerPopulate)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(take),
       Customer.countDocuments(query),
     ]);
 
@@ -50,12 +110,14 @@ const customerRepository = {
   },
 
   async update(id, data) {
-    const customer = await Customer.findByIdAndUpdate(id, data, { new: true });
+    const customer = await Customer.findByIdAndUpdate(id, data, { new: true }).populate(
+      customerPopulate
+    );
     return mapCustomer(customer);
   },
 
   async delete(id) {
-    const customer = await Customer.findById(id);
+    const customer = await Customer.findById(id).populate(customerPopulate);
     if (!customer) return null;
     await Customer.deleteOne({ _id: id });
     return mapCustomer(customer);
@@ -66,7 +128,9 @@ const customerRepository = {
   },
 
   async linkPortalAccount(id, userId) {
-    const customer = await Customer.findByIdAndUpdate(id, { userId }, { new: true });
+    const customer = await Customer.findByIdAndUpdate(id, { userId }, { new: true }).populate(
+      customerPopulate
+    );
     return mapCustomer(customer);
   },
 

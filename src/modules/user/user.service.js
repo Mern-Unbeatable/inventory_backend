@@ -2,8 +2,33 @@ import userRepository from './user.repository.js';
 import ApiError from '../../utils/ApiError.js';
 import { hashPassword } from '../../utils/bcrypt.js';
 
+const STAFF_ROLES = ['ADMIN', 'SELLER'];
+
+const assertStaffUser = (user, { forMutation = false } = {}) => {
+  if (!user) {
+    throw ApiError.notFound('User not found');
+  }
+
+  if (user.role === 'CUSTOMER') {
+    if (forMutation) {
+      throw ApiError.badRequest(
+        'Portal customer accounts are managed from the Customers module, not Users.'
+      );
+    }
+    throw ApiError.notFound('User not found');
+  }
+
+  return user;
+};
+
 const userService = {
   async create(payload) {
+    if (payload.role === 'CUSTOMER') {
+      throw ApiError.badRequest(
+        'Customer portal accounts are created from the Customers module, not Users.'
+      );
+    }
+
     const email = payload.email.toLowerCase();
     const existing = await userRepository.findByEmail(email);
     if (existing) {
@@ -37,7 +62,13 @@ const userService = {
     const skip = (page - 1) * limit;
 
     const { users, total } = await userRepository.findMany({
-      filters: { role, branchId, countryId, search },
+      filters: {
+        role,
+        roles: role ? undefined : STAFF_ROLES,
+        branchId,
+        countryId,
+        search,
+      },
       skip,
       take: limit,
     });
@@ -55,9 +86,7 @@ const userService = {
 
   async getById(id, requester) {
     const user = await userRepository.findById(id);
-    if (!user) {
-      throw ApiError.notFound('User not found');
-    }
+    assertStaffUser(user);
 
     // Sellers may only view their own profile
     if (requester.role === 'SELLER' && requester.id !== id) {
@@ -69,8 +98,12 @@ const userService = {
 
   async update(id, payload) {
     const user = await userRepository.findById(id);
-    if (!user) {
-      throw ApiError.notFound('User not found');
+    assertStaffUser(user, { forMutation: true });
+
+    if (payload.role === 'CUSTOMER') {
+      throw ApiError.badRequest(
+        'Customer portal accounts are managed from the Customers module, not Users.'
+      );
     }
 
     if (payload.email) {
@@ -111,9 +144,7 @@ const userService = {
     }
 
     const user = await userRepository.findById(id);
-    if (!user) {
-      throw ApiError.notFound('User not found');
-    }
+    assertStaffUser(user, { forMutation: true });
 
     return userRepository.delete(id);
   },

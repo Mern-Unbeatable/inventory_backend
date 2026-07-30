@@ -5,6 +5,7 @@ import { Sale } from '../../models/Sale.js';
 import { toApi } from '../../utils/mongooseHelpers.js';
 import { containsInsensitive } from '../../utils/queryHelpers.js';
 import { deleteStoredFile } from '../../utils/fileStorage.js';
+import { getSellerIdsByCountry } from '../../utils/countryScope.js';
 
 const attachOwner = async (json) => {
   if (!json) return null;
@@ -57,11 +58,16 @@ const toCustomerShape = (json, availableQuantity) => ({
   availableQuantity: availableQuantity ?? 0,
 });
 
-const withAvailableQuantity = async (doc) => {
+const withAvailableQuantity = async (doc, { sellerIds = null } = {}) => {
   if (!doc) return null;
   const json = toApi(doc);
+  const match = { productId: json.id };
+  if (sellerIds?.length) {
+    match.userId = { $in: sellerIds };
+  }
+
   const [row] = await UserProduct.aggregate([
-    { $match: { productId: json.id } },
+    { $match: match },
     { $group: { _id: null, total: { $sum: '$quantity' } } },
   ]);
   return toCustomerShape(json, row?.total ?? 0);
@@ -85,10 +91,24 @@ const productRepository = {
     return withSellerAssignment(product, userId);
   },
 
-  async findByIdForCustomer(id) {
+  async findByIdForCustomer(id, { countryId = null } = {}) {
     const product = await Product.findById(id);
     if (!product) return null;
-    return withAvailableQuantity(product);
+
+    const sellerIds = countryId ? await getSellerIdsByCountry(countryId) : null;
+    if (countryId && !sellerIds.length) {
+      return null;
+    }
+
+    if (countryId) {
+      const assigned = await UserProduct.exists({
+        productId: id,
+        userId: { $in: sellerIds },
+      });
+      if (!assigned) return null;
+    }
+
+    return withAvailableQuantity(product, { sellerIds });
   },
 
   async findBySku(sku) {
@@ -96,7 +116,14 @@ const productRepository = {
     return product ? toApi(product) : null;
   },
 
-  async findMany({ filters = {}, skip = 0, take = 20, sellerId = null, forCustomer = false }) {
+  async findMany({
+    filters = {},
+    skip = 0,
+    take = 20,
+    sellerId = null,
+    forCustomer = false,
+    countryId = null,
+  }) {
     const query = {};
 
     if (filters.search) {
@@ -113,9 +140,26 @@ const productRepository = {
       if (filters.maxPrice !== undefined) query.price.$lte = filters.maxPrice;
     }
 
+    let countrySellerIds = null;
+
     if (sellerId) {
       const productIds = await UserProduct.find({ userId: sellerId }).distinct('productId');
       query._id = { $in: productIds };
+    }
+
+    if (forCustomer && countryId) {
+      countrySellerIds = await getSellerIdsByCountry(countryId);
+      if (!countrySellerIds.length) {
+        return { items: [], total: 0 };
+      }
+
+      const productIds = await UserProduct.find({
+        userId: { $in: countrySellerIds },
+      }).distinct('productId');
+
+      query._id = query._id
+        ? { $in: productIds.filter((id) => query._id.$in.includes(id)) }
+        : { $in: productIds };
     }
 
     const [rows, total] = await Promise.all([
@@ -125,8 +169,13 @@ const productRepository = {
 
     if (forCustomer) {
       const ids = rows.map((row) => row._id);
+      const stockMatch = { productId: { $in: ids } };
+      if (countrySellerIds?.length) {
+        stockMatch.userId = { $in: countrySellerIds };
+      }
+
       const stockRows = await UserProduct.aggregate([
-        { $match: { productId: { $in: ids } } },
+        { $match: stockMatch },
         { $group: { _id: '$productId', total: { $sum: '$quantity' } } },
       ]);
       const stockMap = new Map(stockRows.map((r) => [r._id, r.total]));
