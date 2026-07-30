@@ -129,10 +129,9 @@ const productService = {
       }
       if (!existing.ownerId || existing.ownerId !== requester.id) {
         throw ApiError.forbidden(
-          'You can only update products you own. Catalog products cannot be edited by sellers.'
+          'You can only update products you own. Catalog and other sellers’ products cannot be edited.'
         );
       }
-      // Seller must still be assigned (their own create auto-assigns; keep consistent).
       const assigned = await productRepository.findByIdForSeller(id, requester.id);
       if (!assigned) {
         throw ApiError.forbidden('Product is not available in your inventory');
