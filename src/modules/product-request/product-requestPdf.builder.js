@@ -2,7 +2,6 @@ import fs from 'fs';
 import path from 'path';
 import PDFDocument from 'pdfkit';
 import env from '../../config/env.js';
-import { resolveStoredFilePath } from '../../utils/fileStorage.js';
 
 const PAGE_MARGIN = 48;
 const FOOTER_RESERVE = 56;
@@ -79,17 +78,75 @@ const drawSingleLineText = (doc, text, x, y, width, align = 'left') => {
 };
 
 const drawWrappingText = (doc, text, x, y, width, options = {}) => {
-  const value = text == null || text === '' ? '—' : String(text);
+  const value = text == null || text === '' ? ' ' : String(text);
   const height = measureTextHeight(doc, value, width, options);
   doc.text(value, x, y, { width, lineBreak: true, ...options });
   return height;
 };
 
-const resolveProductImagePath = (imageUrl) => {
-  if (!imageUrl) return null;
-  const absolute = resolveStoredFilePath(imageUrl);
-  if (!absolute || !fs.existsSync(absolute)) return null;
-  return absolute;
+const CELL_PAD_X = 6;
+const CELL_PAD_Y = 6;
+const TABLE_HEADER_HEIGHT = 22;
+const BODY_FONT_SIZE = 8;
+
+/** Column widths always sum to `contentWidth` so header/body share one grid. */
+const buildTableColumns = (contentWidth) => {
+  const sku = 95;
+  const qty = 40;
+  const unit = 85;
+  const total = 89;
+  const product = contentWidth - sku - qty - unit - total;
+
+  return [
+    { key: 'product', label: 'Product', width: product, align: 'left', wrap: true },
+    { key: 'sku', label: 'SKU', width: sku, align: 'left', wrap: false },
+    { key: 'qty', label: 'Qty', width: qty, align: 'right', wrap: false },
+    { key: 'unit', label: 'Unit Price', width: unit, align: 'right', wrap: false },
+    { key: 'total', label: 'Line Total', width: total, align: 'right', wrap: false },
+  ];
+};
+
+const getColumnStarts = (columns, startX) => {
+  let x = startX;
+  return columns.map((col) => {
+    const left = x;
+    x += col.width;
+    return left;
+  });
+};
+
+const calculateRowHeight = (doc, cells, columns, paddingY = CELL_PAD_Y) => {
+  let maxContent = 10;
+  doc.font('Helvetica').fontSize(BODY_FONT_SIZE);
+
+  columns.forEach((col) => {
+    const cellWidth = col.width - CELL_PAD_X * 2;
+    const value = cells[col.key] ?? '—';
+    if (col.wrap) {
+      const h = measureTextHeight(doc, value, cellWidth);
+      maxContent = Math.max(maxContent, h);
+    } else {
+      maxContent = Math.max(maxContent, 10);
+    }
+  });
+
+  return Math.ceil(maxContent + paddingY * 2);
+};
+
+const drawTableCell = (doc, { text, x, y, width, align, wrap, rowHeight, font = 'Helvetica' }) => {
+  const cellWidth = width - CELL_PAD_X * 2;
+  const innerX = x + CELL_PAD_X;
+  const contentHeight = wrap
+    ? measureTextHeight(doc, text, cellWidth)
+    : BODY_FONT_SIZE + 1;
+  const textY = y + Math.max(CELL_PAD_Y, (rowHeight - contentHeight) / 2);
+
+  doc.font(font).fontSize(BODY_FONT_SIZE);
+  if (wrap) {
+    drawWrappingText(doc, text, innerX, textY, cellWidth, { align });
+  } else {
+    drawSingleLineText(doc, text, innerX, textY, cellWidth, align);
+  }
 };
 
 /**
@@ -208,30 +265,27 @@ export const buildProductRequestPdf = ({
     });
     y += cardHeight + 24;
 
-    // Table
-    const IMAGE_COL = 44;
-    const columns = [
-      { key: 'image', label: '', width: IMAGE_COL, align: 'left' },
-      { key: 'product', label: 'Product', width: 150, align: 'left', wrap: true },
-      { key: 'sku', label: 'SKU', width: 80, align: 'left' },
-      { key: 'qty', label: 'Qty', width: 36, align: 'right' },
-      { key: 'unit', label: 'Unit Price', width: 78, align: 'right' },
-      { key: 'total', label: 'Line Total', width: 86, align: 'right' },
-    ];
-    const TABLE_HEADER_HEIGHT = 22;
-    const MIN_ROW_HEIGHT = 40;
+    // Table — column grid spans full content width (matches invoice PDF layout)
+    const columns = buildTableColumns(contentWidth);
+    const columnStarts = getColumnStarts(columns, PAGE_MARGIN);
 
     const drawTableHeader = () => {
       doc.save();
       doc.rect(PAGE_MARGIN, y, contentWidth, TABLE_HEADER_HEIGHT).fill(COLORS.accent);
       doc.restore();
-      let x = PAGE_MARGIN;
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8);
-      columns.forEach((col) => {
-        if (col.key !== 'image') {
-          drawSingleLineText(doc, col.label, x + 6, y + 7, col.width - 12, col.align);
-        }
-        x += col.width;
+
+      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(BODY_FONT_SIZE);
+      columns.forEach((col, index) => {
+        drawTableCell(doc, {
+          text: col.label,
+          x: columnStarts[index],
+          y,
+          width: col.width,
+          align: col.align,
+          wrap: false,
+          rowHeight: TABLE_HEADER_HEIGHT,
+          font: 'Helvetica-Bold',
+        });
       });
       y += TABLE_HEADER_HEIGHT;
     };
@@ -250,11 +304,15 @@ export const buildProductRequestPdf = ({
     drawTableHeader();
 
     (items || []).forEach((item, index) => {
-      const productTitle = item.product?.title || '—';
-      doc.font('Helvetica').fontSize(8);
-      const productHeight = measureTextHeight(doc, productTitle, columns[1].width - 12);
-      const rowHeight = Math.max(MIN_ROW_HEIGHT, Math.ceil(productHeight + 12));
+      const cells = {
+        product: item.product?.title || '—',
+        sku: item.product?.sku || '—',
+        qty: String(item.quantity ?? 0),
+        unit: money(item.unitPrice),
+        total: money(item.lineTotal),
+      };
 
+      const rowHeight = calculateRowHeight(doc, cells, columns);
       ensureTableRowSpace(rowHeight);
 
       if (index % 2 === 0) {
@@ -263,42 +321,17 @@ export const buildProductRequestPdf = ({
         doc.restore();
       }
 
-      const imagePath = resolveProductImagePath(item.product?.imageUrl);
-      if (imagePath) {
-        try {
-          doc.image(imagePath, PAGE_MARGIN + 6, y + 6, {
-            fit: [IMAGE_COL - 12, rowHeight - 12],
-            align: 'center',
-            valign: 'center',
-          });
-        } catch {
-          // skip broken image
-        }
-      }
-
-      let x = PAGE_MARGIN;
-      const textY = y + 8;
-      doc.fillColor(COLORS.ink).font('Helvetica').fontSize(8);
-
-      columns.forEach((col) => {
-        if (col.key === 'image') {
-          x += col.width;
-          return;
-        }
-        const cellWidth = col.width - 12;
-        let value = '—';
-        if (col.key === 'product') value = productTitle;
-        if (col.key === 'sku') value = item.product?.sku || '—';
-        if (col.key === 'qty') value = String(item.quantity ?? 0);
-        if (col.key === 'unit') value = money(item.unitPrice);
-        if (col.key === 'total') value = money(item.lineTotal);
-
-        if (col.wrap) {
-          drawWrappingText(doc, value, x + 6, textY, cellWidth, { align: col.align });
-        } else {
-          drawSingleLineText(doc, value, x + 6, textY, cellWidth, col.align);
-        }
-        x += col.width;
+      doc.fillColor(COLORS.ink);
+      columns.forEach((col, colIndex) => {
+        drawTableCell(doc, {
+          text: cells[col.key],
+          x: columnStarts[colIndex],
+          y,
+          width: col.width,
+          align: col.align,
+          wrap: col.wrap,
+          rowHeight,
+        });
       });
 
       y += rowHeight;
