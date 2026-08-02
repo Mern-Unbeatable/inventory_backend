@@ -74,6 +74,8 @@ const mapSellerSale = (doc) => {
   };
 };
 
+const LOW_STOCK_THRESHOLD = 5;
+
 const getTopSellingProducts = async (limit = 5) => {
   const rows = await Sale.aggregate([
     { $group: { _id: '$productId', unitsSold: { $sum: '$quantity' }, revenue: { $sum: '$revenue' } } },
@@ -99,6 +101,70 @@ const getTopSellingProducts = async (limit = 5) => {
   }));
 };
 
+/** Revenue and units sold per seller — includes sellers with zero sales. */
+const getSalesBySeller = async () => {
+  const [sellers, salesRows] = await Promise.all([
+    User.find({ role: 'SELLER' }).select('name email').sort({ name: 1 }).lean(),
+    Sale.aggregate([
+      {
+        $group: {
+          _id: '$userId',
+          revenue: { $sum: '$revenue' },
+          unitsSold: { $sum: '$quantity' },
+        },
+      },
+    ]),
+  ]);
+
+  const salesMap = new Map(
+    salesRows.map((row) => [
+      row._id,
+      { revenue: row.revenue ?? 0, unitsSold: row.unitsSold ?? 0 },
+    ])
+  );
+
+  return sellers
+    .map((seller) => {
+      const stats = salesMap.get(seller._id) ?? { revenue: 0, unitsSold: 0 };
+      return {
+        sellerId: seller._id,
+        sellerName: seller.name,
+        revenue: stats.revenue,
+        unitsSold: stats.unitsSold,
+      };
+    })
+    .sort((a, b) => b.revenue - a.revenue);
+};
+
+/** Catalog products classified by total stock across all seller assignments. */
+const getStockStatusDistribution = async () => {
+  const quantityByProduct = await UserProduct.aggregate([
+    { $group: { _id: '$productId', totalQuantity: { $sum: '$quantity' } } },
+  ]);
+
+  const assignedIds = new Set(quantityByProduct.map((row) => String(row._id)));
+  const unassignedCount = await Product.countDocuments({
+    _id: { $nin: [...assignedIds] },
+  });
+
+  let available = 0;
+  let lowStock = 0;
+  let outOfStock = unassignedCount;
+
+  for (const row of quantityByProduct) {
+    const qty = row.totalQuantity ?? 0;
+    if (qty <= 0) outOfStock += 1;
+    else if (qty <= LOW_STOCK_THRESHOLD) lowStock += 1;
+    else available += 1;
+  }
+
+  return [
+    { status: 'available', label: 'Available', count: available },
+    { status: 'lowStock', label: 'Low Stock', count: lowStock },
+    { status: 'outOfStock', label: 'Out of Stock', count: outOfStock },
+  ];
+};
+
 const dashboardRepository = {
   async getAdminStats() {
     const [
@@ -116,6 +182,8 @@ const dashboardRepository = {
       invoices,
       outstandingDueAgg,
       topSellingProducts,
+      salesBySeller,
+      stockStatusDistribution,
     ] = await Promise.all([
       Country.countDocuments(),
       Branch.countDocuments(),
@@ -131,6 +199,8 @@ const dashboardRepository = {
       Invoice.countDocuments(),
       sumField(Invoice, { status: 'CONFIRMED' }, 'dueAmount'),
       getTopSellingProducts(),
+      getSalesBySeller(),
+      getStockStatusDistribution(),
     ]);
 
     const stockByCountry = await Country.find().sort({ name: 1 }).lean();
@@ -201,12 +271,16 @@ const dashboardRepository = {
         unitsSold: unitsSoldAgg.total,
         salesCount: revenueAgg.count,
         lowStockAssignments: lowStock,
+        outOfStockProducts:
+          stockStatusDistribution.find((row) => row.status === 'outOfStock')?.count ?? 0,
         customers,
         invoices,
         outstandingDue: outstandingDueAgg.total,
       },
       countryBreakdown,
       topSellingProducts,
+      salesBySeller,
+      stockStatusDistribution,
       recentSales: recentSaleDocs.map(mapAdminSale),
     };
   },
