@@ -221,6 +221,7 @@ const dashboardRepository = {
       receivedUnitsAgg,
       invoiceCount,
       pendingInvoicesDueAgg,
+      customerCount,
     ] = await Promise.all([
       UserProduct.countDocuments({ userId }),
       sumField(UserProduct, { userId }, 'quantity'),
@@ -230,6 +231,7 @@ const dashboardRepository = {
       sumField(InventoryTransaction, { userId, type: 'RECEIVED' }, 'changeQuantity'),
       Invoice.countDocuments({ sellerId: userId }),
       sumField(Invoice, { sellerId: userId, status: 'CONFIRMED' }, 'dueAmount'),
+      Customer.countDocuments({ createdBy: userId }),
     ]);
 
     const recentSaleDocs = await Sale.find({ userId })
@@ -248,6 +250,7 @@ const dashboardRepository = {
         receivedUnits: receivedUnitsAgg.total,
         invoiceCount,
         pendingInvoicesDue: pendingInvoicesDueAgg.total,
+        customerCount,
       },
       recentSales: recentSaleDocs.map(mapSellerSale),
     };

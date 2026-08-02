@@ -2,6 +2,7 @@ import { Router } from 'express';
 import authController from './auth.controller.js';
 import validate from '../../middlewares/validate.middleware.js';
 import authenticate from '../../middlewares/auth.middleware.js';
+import authorize from '../../middlewares/role.middleware.js';
 import {
   loginSchema,
   refreshTokenSchema,
@@ -25,6 +26,7 @@ router.patch(
 router.patch(
   '/password',
   authenticate,
+  authorize('ADMIN'),
   validate({ body: changePasswordSchema }),
   authController.changePassword
 );
