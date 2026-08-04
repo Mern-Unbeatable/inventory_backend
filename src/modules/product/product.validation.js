@@ -22,6 +22,8 @@ export const createProductSchema = z.object({
     z.string().max(2000).optional().nullable()
   ),
   price: z.coerce.number().min(0).default(0),
+  quantity: z.coerce.number().int().min(0).optional().default(0),
+  assignUserId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
 });
 
 export const updateProductSchema = z.object({
@@ -32,6 +34,7 @@ export const updateProductSchema = z.object({
     z.string().max(2000).optional().nullable()
   ),
   price: z.preprocess(emptyToUndefined, z.coerce.number().min(0).optional()),
+  quantity: z.coerce.number().int().min(0).optional(),
   removeImage: coerceBoolean,
 });
 

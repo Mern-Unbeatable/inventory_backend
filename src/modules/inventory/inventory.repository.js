@@ -87,9 +87,24 @@ const mapSale = (doc) => {
 };
 
 const inventoryRepository = {
-  async assign({ userId, productId, quantity }) {
+  async assign({ userId, productId, quantity, ledger = null }) {
     const row = await UserProduct.create({ userId, productId, quantity });
     const populated = await UserProduct.findById(row._id).populate(inventoryPopulate);
+
+    if (ledger && quantity > 0) {
+      await recordInventoryTransaction({
+        userProductId: row._id,
+        userId,
+        productId,
+        type: ledger.type ?? 'RECEIVED',
+        beforeQuantity: 0,
+        changeQuantity: quantity,
+        afterQuantity: quantity,
+        reason: ledger.reason ?? 'Initial stock',
+        performedBy: ledger.performedBy,
+      });
+    }
+
     return mapInventoryRow(populated);
   },
 

@@ -18,8 +18,79 @@ const mapSellerProduct = (product) => {
 
 /** Never accept ownership changes from the client body. */
 const stripOwnershipFields = (payload = {}) => {
-  const { ownerId: _ownerId, owner: _owner, ...safe } = payload;
+  const {
+    ownerId: _ownerId,
+    owner: _owner,
+    quantity: _quantity,
+    assignUserId: _assignUserId,
+    ...safe
+  } = payload;
   return safe;
+};
+
+const assertSellerAssignee = async (assignUserId) => {
+  if (!assignUserId) {
+    throw ApiError.badRequest('Select a seller when setting initial quantity');
+  }
+  const user = await inventoryRepository.userExists(assignUserId);
+  if (!user) {
+    throw ApiError.notFound('Seller not found');
+  }
+  if (user.role !== 'SELLER') {
+    throw ApiError.badRequest('Initial stock can only be assigned to a seller');
+  }
+  return user;
+};
+
+const assignInitialStock = async ({
+  userId,
+  productId,
+  quantity,
+  performedBy,
+  reason,
+}) => {
+  await inventoryRepository.assign({
+    userId,
+    productId,
+    quantity,
+    ...(quantity > 0
+      ? {
+          ledger: {
+            type: 'RECEIVED',
+            reason,
+            performedBy,
+          },
+        }
+      : {}),
+  });
+};
+
+const parseInitialQuantity = (value) => {
+  const qty = Number(value);
+  if (!Number.isFinite(qty) || qty < 0) return 0;
+  return Math.floor(qty);
+};
+
+const parseOptionalQuantity = (value) => {
+  if (value === undefined || value === null || value === '') return undefined;
+  return parseInitialQuantity(value);
+};
+
+const syncAssignmentQuantity = async ({
+  assignmentId,
+  currentQuantity,
+  nextQuantity,
+  performedBy,
+  reason,
+}) => {
+  if (!assignmentId || nextQuantity === currentQuantity) return;
+
+  await inventoryRepository.updateQuantity(assignmentId, nextQuantity, {
+    type: 'MANUAL_UPDATE',
+    beforeQuantity: currentQuantity,
+    reason,
+    performedBy,
+  });
 };
 
 const resolveCustomerCountryId = async (requester) => {
@@ -29,6 +100,7 @@ const resolveCustomerCountryId = async (requester) => {
 
 const productService = {
   async create(payload, uploadedFile, requester) {
+    const initialQuantity = parseInitialQuantity(payload?.quantity);
     const safePayload = stripOwnershipFields(payload);
     const sku = safePayload.sku.trim().toUpperCase();
     const existing = await productRepository.findBySku(sku);
@@ -37,6 +109,8 @@ const productService = {
     }
 
     const isSeller = requester?.role === 'SELLER';
+    const isAdmin = requester?.role === 'ADMIN';
+    const assignUserId = payload?.assignUserId;
     const ownerId = isSeller ? requester.id : null;
 
     try {
@@ -51,17 +125,30 @@ const productService = {
 
       // Seller-created products must appear in their inventory list immediately.
       if (isSeller) {
-        await inventoryRepository.assign({
+        await assignInitialStock({
           userId: requester.id,
           productId: product.id,
-          quantity: 0,
+          quantity: initialQuantity,
+          performedBy: requester.id,
+          reason: 'Initial stock on product creation',
         });
         return mapSellerProduct(
           await productRepository.findByIdForSeller(product.id, requester.id)
         );
       }
 
-      return product;
+      if (isAdmin && initialQuantity > 0) {
+        await assertSellerAssignee(assignUserId);
+        await assignInitialStock({
+          userId: assignUserId,
+          productId: product.id,
+          quantity: initialQuantity,
+          performedBy: requester.id,
+          reason: 'Initial stock on product creation',
+        });
+      }
+
+      return productRepository.findById(product.id);
     } catch (error) {
       if (uploadedFile?.publicPath) {
         deleteStoredFile(uploadedFile.publicPath);
@@ -143,6 +230,7 @@ const productService = {
   },
 
   async update(id, payload, uploadedFile, requester) {
+    const requestedQuantity = parseOptionalQuantity(payload?.quantity);
     const safePayload = stripOwnershipFields(payload);
     const isSeller = requester?.role === 'SELLER';
 
@@ -196,16 +284,58 @@ const productService = {
       data.imageUrl = null;
     }
 
-    if (Object.keys(data).length === 0 && !uploadedFile && !removeImage) {
+    if (Object.keys(data).length === 0 && !uploadedFile && !removeImage && requestedQuantity === undefined) {
       throw ApiError.badRequest('At least one field is required');
     }
 
     try {
-      await productRepository.update(id, data);
+      if (Object.keys(data).length > 0 || uploadedFile || removeImage) {
+        await productRepository.update(id, data);
+      }
       if (previousImageUrl) {
         const updatedCheck = await productRepository.findById(id);
-        if (previousImageUrl !== updatedCheck?.imageUrl) {
+        if (previousCheck && previousImageUrl !== updatedCheck?.imageUrl) {
           deleteStoredFile(previousImageUrl);
+        }
+      }
+
+      if (requestedQuantity !== undefined) {
+        if (isSeller) {
+          const assigned = await productRepository.findByIdForSeller(id, requester.id);
+          const assignment = assigned?.assignedUsers?.[0];
+          if (!assignment) {
+            throw ApiError.forbidden('Product is not available in your inventory');
+          }
+          await syncAssignmentQuantity({
+            assignmentId: assignment.id,
+            currentQuantity: assignment.quantity ?? 0,
+            nextQuantity: requestedQuantity,
+            performedBy: requester.id,
+            reason: 'Quantity updated via product edit',
+          });
+        } else {
+          const catalog = await productRepository.findById(id);
+          const assignmentCount = catalog?._count?.assignedUsers ?? 0;
+
+          if (assignmentCount > 1) {
+            throw ApiError.badRequest(
+              'Multiple seller assignments exist. Update stock via Inventory.'
+            );
+          }
+          if (assignmentCount === 0 && requestedQuantity > 0) {
+            throw ApiError.badRequest(
+              'Assign this product to a seller via Inventory before setting stock.'
+            );
+          }
+          if (assignmentCount === 1 && catalog?.assignmentId) {
+            await syncAssignmentQuantity({
+              assignmentId: catalog.assignmentId,
+              currentQuantity: catalog.quantity ?? 0,
+              nextQuantity: requestedQuantity,
+              performedBy: requester.id,
+              reason: 'Quantity updated via product edit',
+            });
+          }
         }
       }
 

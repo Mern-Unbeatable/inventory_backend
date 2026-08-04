@@ -4,7 +4,7 @@ import catchAsync from '../../utils/catchAsync.js';
 
 const inventoryController = {
   assign: catchAsync(async (req, res) => {
-    const data = await inventoryService.assign(req.body);
+    const data = await inventoryService.assign(req.body, req.user);
     return ApiResponse.created(res, data, 'Product assigned successfully');
   }),
 

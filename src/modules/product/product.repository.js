@@ -29,8 +29,23 @@ const attachOwner = async (json) => {
 const withAssignedCount = async (doc) => {
   if (!doc) return null;
   const json = toApi(doc);
-  const assignedUsers = await UserProduct.countDocuments({ productId: json.id });
+  const assignments = await UserProduct.find({ productId: json.id }).select(
+    '_id quantity'
+  );
+  const assignedUsers = assignments.length;
+  const totalQuantity = assignments.reduce((sum, row) => sum + row.quantity, 0);
+
   json._count = { assignedUsers };
+  json.totalQuantity = totalQuantity;
+
+  if (assignedUsers === 1) {
+    json.quantity = assignments[0].quantity;
+    json.assignmentId = assignments[0]._id;
+  } else {
+    json.quantity = totalQuantity;
+    json.assignmentId = null;
+  }
+
   return attachOwner(json);
 };
 

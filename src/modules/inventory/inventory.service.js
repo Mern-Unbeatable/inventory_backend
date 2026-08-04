@@ -5,7 +5,7 @@ const inventoryService = {
   /**
    * Admin assigns a master product to a seller with an initial quantity.
    */
-  async assign(payload) {
+  async assign(payload, requester) {
     const user = await inventoryRepository.userExists(payload.userId);
     if (!user) {
       throw ApiError.notFound('User not found');
@@ -29,10 +29,21 @@ const inventoryService = {
       );
     }
 
+    const quantity = payload.quantity ?? 0;
+
     return inventoryRepository.assign({
       userId: payload.userId,
       productId: payload.productId,
-      quantity: payload.quantity ?? 0,
+      quantity,
+      ...(quantity > 0
+        ? {
+            ledger: {
+              type: 'RECEIVED',
+              reason: 'Initial stock on product assignment',
+              performedBy: requester.id,
+            },
+          }
+        : {}),
     });
   },
 
