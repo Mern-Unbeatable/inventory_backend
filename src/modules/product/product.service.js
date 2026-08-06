@@ -151,7 +151,7 @@ const productService = {
       return productRepository.findById(product.id);
     } catch (error) {
       if (uploadedFile?.publicPath) {
-        deleteStoredFile(uploadedFile.publicPath);
+        await deleteStoredFile(uploadedFile.publicPath);
       }
       throw error;
     }
@@ -295,7 +295,7 @@ const productService = {
       if (previousImageUrl) {
         const updatedCheck = await productRepository.findById(id);
         if (previousCheck && previousImageUrl !== updatedCheck?.imageUrl) {
-          deleteStoredFile(previousImageUrl);
+          await deleteStoredFile(previousImageUrl);
         }
       }
 
@@ -347,7 +347,7 @@ const productService = {
       return productRepository.findById(id);
     } catch (error) {
       if (uploadedFile?.publicPath) {
-        deleteStoredFile(uploadedFile.publicPath);
+        await deleteStoredFile(uploadedFile.publicPath);
       }
       throw error;
     }

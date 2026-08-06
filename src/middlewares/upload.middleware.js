@@ -1,18 +1,16 @@
 import multer from 'multer';
-import path from 'node:path';
 import ApiError from '../utils/ApiError.js';
 import { uploadConfig } from '../config/upload.js';
 import {
-  buildUniqueFilename,
-  ensureUploadDir,
   isAllowedImage,
-  toPublicPath,
+  persistUploadedFile,
+  usesR2Storage,
 } from '../utils/fileStorage.js';
 
 /**
  * Factory for reusable multer upload middleware.
  * @param {object} options
- * @param {string} options.folder - Subfolder under uploads/ (e.g. 'products')
+ * @param {string} options.folder - Subfolder under uploads/ or R2 key prefix (e.g. 'products')
  * @param {string} [options.fieldName='image'] - Form field name
  * @param {boolean} [options.optional=true] - Whether file is required
  */
@@ -25,22 +23,9 @@ export const createUploadMiddleware = ({
     throw new Error('createUploadMiddleware requires a folder name');
   }
 
-  const storage = multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      try {
-        const dir = ensureUploadDir(folder);
-        cb(null, dir);
-      } catch (error) {
-        cb(error);
-      }
-    },
-    filename: (_req, file, cb) => {
-      cb(null, buildUniqueFilename(file.originalname));
-    },
-  });
-
+  // Memory storage works for both local (then written to disk) and R2 uploads.
   const upload = multer({
-    storage,
+    storage: multer.memoryStorage(),
     limits: { fileSize: uploadConfig.maxFileSize },
     fileFilter: (_req, file, cb) => {
       if (!isAllowedImage(file)) {
@@ -57,7 +42,7 @@ export const createUploadMiddleware = ({
   const middleware = upload.single(fieldName);
 
   return (req, res, next) => {
-    middleware(req, res, (err) => {
+    middleware(req, res, async (err) => {
       if (err) {
         if (err instanceof ApiError) return next(err);
         if (err instanceof multer.MulterError) {
@@ -76,14 +61,35 @@ export const createUploadMiddleware = ({
         return next(ApiError.badRequest('Image file is required'));
       }
 
-      if (req.file) {
-        req.uploadedFile = {
-          ...req.file,
-          publicPath: toPublicPath(folder, req.file.filename),
-        };
+      if (!req.file) {
+        return next();
       }
 
-      return next();
+      try {
+        if (process.env.STORAGE_DEBUG === 'true') {
+          console.log('[upload.middleware] multer: memoryStorage, hasBuffer:', Boolean(req.file.buffer));
+          console.log('[upload.middleware] usesR2Storage:', usesR2Storage());
+        }
+
+        const stored = await persistUploadedFile(req.file, folder);
+
+        req.uploadedFile = {
+          ...req.file,
+          publicPath: stored.publicPath,
+          objectKey: stored.objectKey,
+          storage: usesR2Storage() ? 'r2' : 'local',
+        };
+
+        return next();
+      } catch (error) {
+        const message = error?.message || 'File upload failed';
+
+        if (/R2 upload failed/i.test(message)) {
+          return next(ApiError.internal('Failed to upload file to storage'));
+        }
+
+        return next(ApiError.internal('Failed to save uploaded file'));
+      }
     });
   };
 };

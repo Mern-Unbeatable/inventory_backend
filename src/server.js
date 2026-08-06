@@ -1,9 +1,11 @@
 import app from './app.js';
 import env from './config/env.js';
 import { connectDatabase, disconnectDatabase } from './config/mongoose.js';
+import { logStorageConfig } from './utils/logStorageConfig.js';
 
 const startServer = async () => {
   try {
+    logStorageConfig();
     await connectDatabase();
     console.log('Database connected');
 

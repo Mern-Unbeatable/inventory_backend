@@ -219,7 +219,7 @@ const productRepository = {
     await Product.deleteOne({ _id: id });
 
     if (product.imageUrl) {
-      deleteStoredFile(product.imageUrl);
+      await deleteStoredFile(product.imageUrl);
     }
 
     return toApi(product);

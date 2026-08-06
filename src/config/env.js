@@ -38,6 +38,25 @@ const env = {
     publicPath: process.env.UPLOAD_PUBLIC_PATH || '/uploads',
     maxFileSize: Number(process.env.UPLOAD_MAX_FILE_SIZE) || 2 * 1024 * 1024,
   },
+  r2: {
+    bucket: process.env.R2_BUCKET_NAME || '',
+    accountId: process.env.R2_ACCOUNT_ID || '',
+    accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+    endpoint: process.env.R2_ENDPOINT || '',
+    publicUrl: process.env.R2_PUBLIC_URL || '',
+    region: process.env.R2_REGION || 'auto',
+  },
+  storageProvider:
+    process.env.STORAGE_PROVIDER ||
+    (process.env.R2_BUCKET_NAME &&
+    process.env.R2_ACCOUNT_ID &&
+    process.env.R2_ACCESS_KEY_ID &&
+    process.env.R2_SECRET_ACCESS_KEY &&
+    process.env.R2_ENDPOINT &&
+    process.env.R2_PUBLIC_URL
+      ? 'r2'
+      : 'local'),
   company: {
     name: process.env.COMPANY_NAME || 'Inventory Management',
     address: process.env.COMPANY_ADDRESS || '',
