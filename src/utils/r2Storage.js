@@ -29,6 +29,7 @@ const getR2Client = () => {
     client = new S3Client({
       region: env.r2.region,
       endpoint: env.r2.endpoint,
+      forcePathStyle: true,
       credentials: {
         accessKeyId: env.r2.accessKeyId,
         secretAccessKey: env.r2.secretAccessKey,
