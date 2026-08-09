@@ -294,7 +294,7 @@ const productService = {
       }
       if (previousImageUrl) {
         const updatedCheck = await productRepository.findById(id);
-        if (previousCheck && previousImageUrl !== updatedCheck?.imageUrl) {
+        if (previousImageUrl && previousImageUrl !== updatedCheck?.imageUrl) {
           await deleteStoredFile(previousImageUrl);
         }
       }
