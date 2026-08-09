@@ -1,18 +1,18 @@
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
-import { connectDatabase, disconnectDatabase } from './config/mongoose.js';
+import { connectDatabase, disconnectDatabase } from '../src/config/mongoose.js';
 import mongoose from 'mongoose';
-import { Country } from './models/Country.js';
-import { Branch } from './models/Branch.js';
-import { User } from './models/User.js';
-import { Product } from './models/Product.js';
-import { UserProduct } from './models/UserProduct.js';
-import { Sale } from './models/Sale.js';
-import { Customer } from './models/Customer.js';
-import { Invoice } from './models/Invoice.js';
-import { InvoiceItem } from './models/InvoiceItem.js';
-import { Payment } from './models/Payment.js';
-import { InventoryTransaction } from './models/InventoryTransaction.js';
+import { Country } from '../src/models/Country.js';
+import { Branch } from '../src/models/Branch.js';
+import { User } from '../src/models/User.js';
+import { Product } from '../src/models/Product.js';
+import { UserProduct } from '../src/models/UserProduct.js';
+import { Sale } from '../src/models/Sale.js';
+import { Customer } from '../src/models/Customer.js';
+import { Invoice } from '../src/models/Invoice.js';
+import { InvoiceItem } from '../src/models/InvoiceItem.js';
+import { Payment } from '../src/models/Payment.js';
+import { InventoryTransaction } from '../src/models/InventoryTransaction.js';
 
 dotenv.config();
 
@@ -21,7 +21,8 @@ dotenv.config();
  * every collection, including ones not touched below (e.g. refresh_tokens).
  * Without the flag, seeding stays non-destructive (upsert-only), as before.
  */
-const shouldReset = process.argv.includes('--reset') || process.env.RESET_DB === 'true';
+const shouldReset =
+  process.argv.includes('--reset') || process.env.RESET_DB === 'true';
 
 async function resetDatabase() {
   console.log('⚠️  --reset flag detected: dropping the entire database...');
@@ -33,7 +34,7 @@ async function upsertCountry({ name, code }) {
   return Country.findOneAndUpdate(
     { name },
     { $setOnInsert: { name, code } },
-    { upsert: true, new: true }
+    { upsert: true, new: true },
   );
 }
 
@@ -41,7 +42,7 @@ async function upsertBranch({ name, code, countryId }) {
   return Branch.findOneAndUpdate(
     { code, countryId },
     { $setOnInsert: { name, code, countryId } },
-    { upsert: true, new: true }
+    { upsert: true, new: true },
   );
 }
 
@@ -49,7 +50,7 @@ async function upsertUser({ email, ...data }) {
   return User.findOneAndUpdate(
     { email },
     { $set: data },
-    { upsert: true, new: true }
+    { upsert: true, new: true },
   );
 }
 
@@ -57,7 +58,7 @@ async function upsertProduct(product) {
   return Product.findOneAndUpdate(
     { sku: product.sku },
     { $set: product },
-    { upsert: true, new: true }
+    { upsert: true, new: true },
   );
 }
 
@@ -68,14 +69,21 @@ async function upsertAssignment({ userId, productId, quantity }) {
       $set: { quantity },
       $setOnInsert: { userId, productId },
     },
-    { upsert: true, new: true }
+    { upsert: true, new: true },
   );
 }
 
 /** Creates a Sale row without mutating current UserProduct.quantity — the
  *  seeded assignment quantities already represent "current stock after
  *  these historical sales", so this only backfills reporting history. */
-async function seedSale({ userId, productId, userProductId, quantity, unitPrice, daysAgo }) {
+async function seedSale({
+  userId,
+  productId,
+  userProductId,
+  quantity,
+  unitPrice,
+  daysAgo,
+}) {
   const revenue = quantity * unitPrice;
   const createdAt = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
   return Sale.create({
@@ -93,14 +101,25 @@ async function upsertCustomer({ email, ...data }) {
   return Customer.findOneAndUpdate(
     { email },
     { $set: data, $setOnInsert: { email } },
-    { upsert: true, new: true }
+    { upsert: true, new: true },
   );
 }
 
 /** Idempotent invoice upsert (natural key: invoiceNumber) — replaces its items each run. */
-async function upsertInvoice({ invoiceNumber, customerId, sellerId, status, notes, items, paidAmount = 0 }) {
+async function upsertInvoice({
+  invoiceNumber,
+  customerId,
+  sellerId,
+  status,
+  notes,
+  items,
+  paidAmount = 0,
+}) {
   const totalAmount =
-    Math.round(items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0) * 100) / 100;
+    Math.round(
+      items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0) *
+        100,
+    ) / 100;
   const dueAmount = Math.max(totalAmount - paidAmount, 0);
   let paymentStatus = 'UNPAID';
   if (totalAmount <= 0 || paidAmount >= totalAmount) paymentStatus = 'PAID';
@@ -122,7 +141,7 @@ async function upsertInvoice({ invoiceNumber, customerId, sellerId, status, note
       },
       $setOnInsert: { invoiceNumber },
     },
-    { upsert: true, new: true }
+    { upsert: true, new: true },
   );
 
   await InvoiceItem.deleteMany({ invoiceId: invoice._id });
@@ -133,14 +152,21 @@ async function upsertInvoice({ invoiceNumber, customerId, sellerId, status, note
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       lineTotal: Math.round(item.quantity * item.unitPrice * 100) / 100,
-    }))
+    })),
   );
 
   return invoice;
 }
 
 /** Idempotent payment replace for a given invoice (seed-only convenience). */
-async function upsertPayment({ invoiceId, amount, paymentMethod, notes, recordedBy, daysAgo }) {
+async function upsertPayment({
+  invoiceId,
+  amount,
+  paymentMethod,
+  notes,
+  recordedBy,
+  daysAgo,
+}) {
   await Payment.deleteMany({ invoiceId });
   return Payment.create({
     invoiceId,
@@ -154,7 +180,18 @@ async function upsertPayment({ invoiceId, amount, paymentMethod, notes, recorded
 }
 
 /** Idempotent inventory-transaction replace, so re-running seed doesn't duplicate ledger rows. */
-async function upsertInventoryTransaction({ userProductId, userId, productId, type, beforeQuantity, changeQuantity, afterQuantity, reason, performedBy, daysAgo }) {
+async function upsertInventoryTransaction({
+  userProductId,
+  userId,
+  productId,
+  type,
+  beforeQuantity,
+  changeQuantity,
+  afterQuantity,
+  reason,
+  performedBy,
+  daysAgo,
+}) {
   await InventoryTransaction.deleteMany({ userProductId, type, reason });
   return InventoryTransaction.create({
     userProductId,
@@ -171,7 +208,9 @@ async function upsertInventoryTransaction({ userProductId, userId, productId, ty
 }
 
 async function main() {
-  const adminEmail = (process.env.ADMIN_EMAIL || 'admin@inventory.com').toLowerCase();
+  const adminEmail = (
+    process.env.ADMIN_EMAIL || 'admin@inventory.com'
+  ).toLowerCase();
   const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@12345';
   const adminName = process.env.ADMIN_NAME || 'System Admin';
   const sellerPassword = 'Seller@12345';
@@ -221,10 +260,26 @@ async function main() {
 
   const hashedSeller = await bcrypt.hash(sellerPassword, 12);
   const sellerDefs = [
-    { email: 'seller.addis@inventory.com', name: 'Addis Seller', branch: addisBranch },
-    { email: 'seller.hawassa@inventory.com', name: 'Hawassa Seller', branch: hawassaBranch },
-    { email: 'seller.dhaka@inventory.com', name: 'Dhaka Seller', branch: dhakaBranch },
-    { email: 'seller.chittagong@inventory.com', name: 'Chittagong Seller', branch: chittagongBranch },
+    {
+      email: 'seller.addis@inventory.com',
+      name: 'Addis Seller',
+      branch: addisBranch,
+    },
+    {
+      email: 'seller.hawassa@inventory.com',
+      name: 'Hawassa Seller',
+      branch: hawassaBranch,
+    },
+    {
+      email: 'seller.dhaka@inventory.com',
+      name: 'Dhaka Seller',
+      branch: dhakaBranch,
+    },
+    {
+      email: 'seller.chittagong@inventory.com',
+      name: 'Chittagong Seller',
+      branch: chittagongBranch,
+    },
   ];
 
   const sellers = {};
@@ -240,14 +295,54 @@ async function main() {
 
   // ---- Products: full skincare catalog ----
   const productDefs = [
-    { title: 'Hydrating Face Serum', sku: 'SKN-SERUM-001', description: 'Hyaluronic acid serum for dry climates', price: 18.5 },
-    { title: 'SPF 50 Sunscreen Gel', sku: 'SKN-SUN-050', description: 'Lightweight sun protection for daily use', price: 12.0 },
-    { title: 'Night Repair Cream', sku: 'SKN-CRM-NITE', description: 'Overnight moisturizing cream', price: 22.75 },
-    { title: 'Vitamin C Brightening Serum', sku: 'SKN-VITC-001', description: 'Antioxidant serum for dull skin', price: 19.99 },
-    { title: 'Gentle Foaming Cleanser', sku: 'SKN-CLN-001', description: 'Daily sulfate-free facial cleanser', price: 9.5 },
-    { title: 'Rose Water Toner', sku: 'SKN-TNR-002', description: 'Alcohol-free hydrating toner', price: 8.25 },
-    { title: 'Retinol Night Serum', sku: 'SKN-RET-003', description: 'Anti-aging retinol treatment', price: 27.0 },
-    { title: 'Charcoal Detox Mask', sku: 'SKN-MSK-004', description: 'Deep-cleansing clay & charcoal mask', price: 14.75 },
+    {
+      title: 'Hydrating Face Serum',
+      sku: 'SKN-SERUM-001',
+      description: 'Hyaluronic acid serum for dry climates',
+      price: 18.5,
+    },
+    {
+      title: 'SPF 50 Sunscreen Gel',
+      sku: 'SKN-SUN-050',
+      description: 'Lightweight sun protection for daily use',
+      price: 12.0,
+    },
+    {
+      title: 'Night Repair Cream',
+      sku: 'SKN-CRM-NITE',
+      description: 'Overnight moisturizing cream',
+      price: 22.75,
+    },
+    {
+      title: 'Vitamin C Brightening Serum',
+      sku: 'SKN-VITC-001',
+      description: 'Antioxidant serum for dull skin',
+      price: 19.99,
+    },
+    {
+      title: 'Gentle Foaming Cleanser',
+      sku: 'SKN-CLN-001',
+      description: 'Daily sulfate-free facial cleanser',
+      price: 9.5,
+    },
+    {
+      title: 'Rose Water Toner',
+      sku: 'SKN-TNR-002',
+      description: 'Alcohol-free hydrating toner',
+      price: 8.25,
+    },
+    {
+      title: 'Retinol Night Serum',
+      sku: 'SKN-RET-003',
+      description: 'Anti-aging retinol treatment',
+      price: 27.0,
+    },
+    {
+      title: 'Charcoal Detox Mask',
+      sku: 'SKN-MSK-004',
+      description: 'Deep-cleansing clay & charcoal mask',
+      price: 14.75,
+    },
   ];
 
   const products = {};
@@ -258,17 +353,41 @@ async function main() {
   // ---- Inventory assignments (quantities intentionally vary; some ≤5 to
   // demo the "low stock" indicator on both dashboards) ----
   const assignmentDefs = [
-    { seller: 'seller.addis@inventory.com', sku: 'SKN-SERUM-001', quantity: 35 },
+    {
+      seller: 'seller.addis@inventory.com',
+      sku: 'SKN-SERUM-001',
+      quantity: 35,
+    },
     { seller: 'seller.addis@inventory.com', sku: 'SKN-SUN-050', quantity: 20 },
     { seller: 'seller.addis@inventory.com', sku: 'SKN-VITC-001', quantity: 4 },
-    { seller: 'seller.hawassa@inventory.com', sku: 'SKN-CRM-NITE', quantity: 50 },
-    { seller: 'seller.hawassa@inventory.com', sku: 'SKN-CLN-001', quantity: 60 },
+    {
+      seller: 'seller.hawassa@inventory.com',
+      sku: 'SKN-CRM-NITE',
+      quantity: 50,
+    },
+    {
+      seller: 'seller.hawassa@inventory.com',
+      sku: 'SKN-CLN-001',
+      quantity: 60,
+    },
     { seller: 'seller.dhaka@inventory.com', sku: 'SKN-TNR-002', quantity: 45 },
     { seller: 'seller.dhaka@inventory.com', sku: 'SKN-RET-003', quantity: 2 },
     { seller: 'seller.dhaka@inventory.com', sku: 'SKN-SUN-050', quantity: 30 },
-    { seller: 'seller.chittagong@inventory.com', sku: 'SKN-MSK-004', quantity: 25 },
-    { seller: 'seller.chittagong@inventory.com', sku: 'SKN-SERUM-001', quantity: 15 },
-    { seller: 'seller.chittagong@inventory.com', sku: 'SKN-CRM-NITE', quantity: 5 },
+    {
+      seller: 'seller.chittagong@inventory.com',
+      sku: 'SKN-MSK-004',
+      quantity: 25,
+    },
+    {
+      seller: 'seller.chittagong@inventory.com',
+      sku: 'SKN-SERUM-001',
+      quantity: 15,
+    },
+    {
+      seller: 'seller.chittagong@inventory.com',
+      sku: 'SKN-CRM-NITE',
+      quantity: 5,
+    },
   ];
 
   const assignments = {};
@@ -285,12 +404,42 @@ async function main() {
 
   // ---- A handful of historical sales so dashboards/revenue aren't empty ----
   const saleDefs = [
-    { seller: 'seller.addis@inventory.com', sku: 'SKN-SERUM-001', quantity: 5, daysAgo: 6 },
-    { seller: 'seller.addis@inventory.com', sku: 'SKN-VITC-001', quantity: 2, daysAgo: 2 },
-    { seller: 'seller.hawassa@inventory.com', sku: 'SKN-CLN-001', quantity: 8, daysAgo: 4 },
-    { seller: 'seller.dhaka@inventory.com', sku: 'SKN-RET-003', quantity: 3, daysAgo: 1 },
-    { seller: 'seller.dhaka@inventory.com', sku: 'SKN-TNR-002', quantity: 10, daysAgo: 5 },
-    { seller: 'seller.chittagong@inventory.com', sku: 'SKN-MSK-004', quantity: 6, daysAgo: 3 },
+    {
+      seller: 'seller.addis@inventory.com',
+      sku: 'SKN-SERUM-001',
+      quantity: 5,
+      daysAgo: 6,
+    },
+    {
+      seller: 'seller.addis@inventory.com',
+      sku: 'SKN-VITC-001',
+      quantity: 2,
+      daysAgo: 2,
+    },
+    {
+      seller: 'seller.hawassa@inventory.com',
+      sku: 'SKN-CLN-001',
+      quantity: 8,
+      daysAgo: 4,
+    },
+    {
+      seller: 'seller.dhaka@inventory.com',
+      sku: 'SKN-RET-003',
+      quantity: 3,
+      daysAgo: 1,
+    },
+    {
+      seller: 'seller.dhaka@inventory.com',
+      sku: 'SKN-TNR-002',
+      quantity: 10,
+      daysAgo: 5,
+    },
+    {
+      seller: 'seller.chittagong@inventory.com',
+      sku: 'SKN-MSK-004',
+      quantity: 6,
+      daysAgo: 3,
+    },
   ];
 
   for (const def of saleDefs) {
@@ -354,8 +503,11 @@ async function main() {
     customerId: nomiRetail._id,
     sellerId: addisSeller._id,
     status: 'DRAFT',
-    notes: 'Sample draft invoice — awaiting confirmation (no stock impact yet).',
-    items: [{ productId: sunscreen._id, quantity: 3, unitPrice: sunscreen.price }],
+    notes:
+      'Sample draft invoice — awaiting confirmation (no stock impact yet).',
+    items: [
+      { productId: sunscreen._id, quantity: 3, unitPrice: sunscreen.price },
+    ],
   });
 
   const confirmedInvoice = await upsertInvoice({
@@ -364,7 +516,9 @@ async function main() {
     sellerId: hawassaSeller._id,
     status: 'CONFIRMED',
     notes: 'Sample confirmed invoice — stock already reflects this deduction.',
-    items: [{ productId: cleanser._id, quantity: 10, unitPrice: cleanser.price }],
+    items: [
+      { productId: cleanser._id, quantity: 10, unitPrice: cleanser.price },
+    ],
     paidAmount: 50,
   });
 
@@ -379,7 +533,8 @@ async function main() {
 
   // Ledger entry documenting the confirmed invoice's stock deduction
   // (the Hawassa cleanser assignment quantity above already reflects it).
-  const hawassaCleanserAssignment = assignments['seller.hawassa@inventory.com:SKN-CLN-001'];
+  const hawassaCleanserAssignment =
+    assignments['seller.hawassa@inventory.com:SKN-CLN-001'];
   if (hawassaCleanserAssignment) {
     await upsertInventoryTransaction({
       userProductId: hawassaCleanserAssignment._id,
@@ -398,16 +553,24 @@ async function main() {
   console.log('\nSeed completed:');
   console.log(`  Admin:  ${admin.email} / ${adminPassword}`);
   for (const def of sellerDefs) {
-    console.log(`  Seller: ${def.email} / ${sellerPassword}  (${def.branch.name})`);
+    console.log(
+      `  Seller: ${def.email} / ${sellerPassword}  (${def.branch.name})`,
+    );
   }
-  console.log(`  Customer portal: ${customerPortalUser.email} / ${customerPortalPassword}`);
+  console.log(
+    `  Customer portal: ${customerPortalUser.email} / ${customerPortalPassword}`,
+  );
   console.log(`  Countries: ${ethiopia.name}, ${bangladesh.name}`);
-  console.log(`  Branches: ${addisBranch.name}, ${hawassaBranch.name}, ${dhakaBranch.name}, ${chittagongBranch.name}`);
+  console.log(
+    `  Branches: ${addisBranch.name}, ${hawassaBranch.name}, ${dhakaBranch.name}, ${chittagongBranch.name}`,
+  );
   console.log(`  Products: ${Object.keys(products).length}`);
   console.log(`  Inventory assignments: ${assignmentDefs.length}`);
   console.log(`  Historical sales: ${saleDefs.length}`);
   console.log(`  Customers: ${nomiRetail.name}, ${bezaTrading.name}`);
-  console.log(`  Invoices: ${draftInvoice.invoiceNumber} (DRAFT), ${confirmedInvoice.invoiceNumber} (CONFIRMED, partially paid)`);
+  console.log(
+    `  Invoices: ${draftInvoice.invoiceNumber} (DRAFT), ${confirmedInvoice.invoiceNumber} (CONFIRMED, partially paid)`,
+  );
 }
 
 main()

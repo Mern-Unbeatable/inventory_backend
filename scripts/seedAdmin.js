@@ -1,8 +1,8 @@
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
-import { connectDatabase, disconnectDatabase } from './config/mongoose.js';
-import { User } from './models/User.js';
-import { hashPassword } from './utils/bcrypt.js';
+import { connectDatabase, disconnectDatabase } from '../src/config/mongoose.js';
+import { User } from '../src/models/User.js';
+import { hashPassword } from '../src/utils/bcrypt.js';
 
 dotenv.config();
 
