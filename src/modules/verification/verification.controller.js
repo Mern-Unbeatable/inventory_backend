@@ -29,6 +29,15 @@ const verificationController = {
     return ApiResponse.success(res, data, "Verification deleted successfully");
   }),
 
+  bulkRemove: catchAsync(async (req, res) => {
+    const data = await verificationService.bulkRemove(req.body.ids);
+    return ApiResponse.success(
+      res,
+      data,
+      `${data.deletedCount} verification${data.deletedCount === 1 ? "" : "s"} deleted successfully`,
+    );
+  }),
+
   // ---- Public ----
   verify: catchAsync(async (req, res) => {
     const data = await verificationService.verifyByQrId(req.params.qrId);

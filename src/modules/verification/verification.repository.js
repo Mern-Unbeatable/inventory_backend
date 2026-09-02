@@ -56,6 +56,26 @@ const verificationRepository = {
     return toApi(doc);
   },
 
+  async findManyByIds(ids) {
+    return ProductVerification.find({ _id: { $in: ids } }).select("_id");
+  },
+
+  async bulkRemove(ids) {
+    const docs = await ProductVerification.find({ _id: { $in: ids } }).select(
+      "_id",
+    );
+    if (!docs.length) return 0;
+
+    await Promise.all(
+      docs.map((doc) =>
+        ProductVerificationScan.deleteMany({ verificationId: doc._id }),
+      ),
+    );
+
+    const result = await ProductVerification.deleteMany({ _id: { $in: ids } });
+    return result.deletedCount || 0;
+  },
+
   /** Append a scan record and return the aggregated stats for this verification. */
   async recordScan(verificationId) {
     const priorCount = await ProductVerificationScan.countDocuments({

@@ -86,6 +86,26 @@ const verificationService = {
     return removed;
   },
 
+  async bulkRemove(ids) {
+    const uniqueIds = [...new Set(ids)];
+    if (!uniqueIds.length) {
+      throw ApiError.badRequest("At least one verification ID is required");
+    }
+
+    const docs = await verificationRepository.findManyByIds(uniqueIds);
+    const existingIds = docs.map((doc) => doc.id);
+    const missingIds = uniqueIds.filter((id) => !existingIds.includes(id));
+
+    if (missingIds.length) {
+      throw ApiError.notFound(
+        `Some verification records could not be found: ${missingIds.join(", ")}`,
+      );
+    }
+
+    const deletedCount = await verificationRepository.bulkRemove(uniqueIds);
+    return { deletedCount, ids: uniqueIds };
+  },
+
   // ---- Public verification (no auth) ----
   async verifyByQrId(rawQrId) {
     const qrId = normalizeQrId(rawQrId);

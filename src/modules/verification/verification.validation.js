@@ -30,6 +30,13 @@ export const updateVerificationSchema = z
 
 export const verificationIdParamSchema = z.object({ id: uuid });
 
+export const bulkVerificationDeleteSchema = z.object({
+  ids: z
+    .array(uuid)
+    .min(1, "At least one QR mapping is required")
+    .max(100, "Too many QR mappings selected"),
+});
+
 export const qrIdParamSchema = z.object({ qrId });
 
 export const listVerificationsQuerySchema = z.object({

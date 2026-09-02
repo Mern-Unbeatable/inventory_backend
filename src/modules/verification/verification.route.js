@@ -4,6 +4,7 @@ import authenticate from "../../middlewares/auth.middleware.js";
 import authorize from "../../middlewares/role.middleware.js";
 import validate from "../../middlewares/validate.middleware.js";
 import {
+  bulkVerificationDeleteSchema,
   createVerificationSchema,
   updateVerificationSchema,
   verificationIdParamSchema,
@@ -51,6 +52,12 @@ router.patch(
     body: updateVerificationSchema,
   }),
   verificationController.update,
+);
+
+router.delete(
+  "/bulk",
+  validate({ body: bulkVerificationDeleteSchema }),
+  verificationController.bulkRemove,
 );
 
 router.delete(
