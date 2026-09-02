@@ -29,6 +29,15 @@ const branchController = {
     return ApiResponse.success(res, data, "Country deleted successfully");
   }),
 
+  bulkRemoveCountry: catchAsync(async (req, res) => {
+    const data = await branchService.bulkDeleteCountries(req.body.ids);
+    return ApiResponse.success(
+      res,
+      data,
+      `${data.deletedCount} ${data.deletedCount === 1 ? "country" : "countries"} deleted successfully`,
+    );
+  }),
+
   // ---- Branch ----
   create: catchAsync(async (req, res) => {
     const data = await branchService.createBranch(req.body);

@@ -18,6 +18,13 @@ export const updateCountrySchema = z
 
 export const countryIdParamSchema = z.object({ id: uuid });
 
+export const bulkCountryDeleteSchema = z.object({
+  ids: z
+    .array(uuid)
+    .min(1, "At least one country is required")
+    .max(100, "Too many countries selected"),
+});
+
 export const createBranchSchema = z.object({
   name: z.string().min(2).max(100),
   code: z.string().min(1).max(50).optional().nullable(),

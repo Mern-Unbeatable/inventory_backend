@@ -75,6 +75,32 @@ const branchRepository = {
     return toApi(country);
   },
 
+  async findManyCountriesByIds(ids) {
+    return Country.find({ _id: { $in: ids } })
+      .select("_id")
+      .lean();
+  },
+
+  async bulkDeleteCountries(ids) {
+    const countries = await Country.find({ _id: { $in: ids } }).select("_id");
+    if (!countries.length) return 0;
+
+    const branchIds = await Branch.find({ countryId: { $in: ids } }).distinct(
+      "_id",
+    );
+
+    await Promise.all([
+      User.updateMany(
+        { branchId: { $in: branchIds } },
+        { $set: { branchId: null } },
+      ),
+      Branch.deleteMany({ countryId: { $in: ids } }),
+      Country.deleteMany({ _id: { $in: ids } }),
+    ]);
+
+    return countries.length;
+  },
+
   async createBranch(data) {
     const branch = await Branch.create(data);
     const populated = await Branch.findById(branch._id).populate("countryId");

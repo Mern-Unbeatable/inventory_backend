@@ -5,6 +5,7 @@ import authorize from "../../middlewares/role.middleware.js";
 import validate from "../../middlewares/validate.middleware.js";
 import {
   bulkBranchDeleteSchema,
+  bulkCountryDeleteSchema,
   createCountrySchema,
   updateCountrySchema,
   countryIdParamSchema,
@@ -42,6 +43,12 @@ countryRoutes.patch(
   authorize("ADMIN"),
   validate({ params: countryIdParamSchema, body: updateCountrySchema }),
   branchController.updateCountry,
+);
+countryRoutes.delete(
+  "/bulk",
+  authorize("ADMIN"),
+  validate({ body: bulkCountryDeleteSchema }),
+  branchController.bulkRemoveCountry,
 );
 countryRoutes.delete(
   "/:id",

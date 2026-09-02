@@ -66,6 +66,27 @@ const branchService = {
     return branchRepository.deleteCountry(id);
   },
 
+  async bulkDeleteCountries(ids) {
+    const uniqueIds = [...new Set(ids)];
+    if (!uniqueIds.length) {
+      throw ApiError.badRequest("At least one country is required");
+    }
+
+    const existingCountries =
+      await branchRepository.findManyCountriesByIds(uniqueIds);
+    const existingIds = existingCountries.map((country) => country.id);
+    const missingIds = uniqueIds.filter((id) => !existingIds.includes(id));
+
+    if (missingIds.length) {
+      throw ApiError.notFound(
+        `Some country records could not be found: ${missingIds.join(", ")}`,
+      );
+    }
+
+    const deletedCount = await branchRepository.bulkDeleteCountries(uniqueIds);
+    return { deletedCount, ids: uniqueIds };
+  },
+
   // ---- Branch ----
   async createBranch(payload) {
     const country = await branchRepository.findCountryById(payload.countryId);
