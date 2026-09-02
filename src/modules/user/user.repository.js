@@ -1,28 +1,33 @@
-import { User } from '../../models/User.js';
-import { Branch } from '../../models/Branch.js';
-import { UserProduct } from '../../models/UserProduct.js';
-import { Sale } from '../../models/Sale.js';
-import { RefreshToken } from '../../models/RefreshToken.js';
-import { toApi } from '../../utils/mongooseHelpers.js';
-import { containsInsensitive } from '../../utils/queryHelpers.js';
+import { User } from "../../models/User.js";
+import { Branch } from "../../models/Branch.js";
+import { UserProduct } from "../../models/UserProduct.js";
+import { Sale } from "../../models/Sale.js";
+import { RefreshToken } from "../../models/RefreshToken.js";
+import { toApi } from "../../utils/mongooseHelpers.js";
+import { containsInsensitive } from "../../utils/queryHelpers.js";
 
 const branchCountryPopulate = {
-  path: 'branchId',
-  populate: { path: 'countryId' },
+  path: "branchId",
+  populate: { path: "countryId" },
 };
 
 const mapUserWithBranch = (doc) => {
   if (!doc) return null;
   const json = toApi(doc);
-  const branch = json.branchId && typeof json.branchId === 'object' ? json.branchId : null;
+  const branch =
+    json.branchId && typeof json.branchId === "object" ? json.branchId : null;
   if (branch) {
     const country =
-      branch.countryId && typeof branch.countryId === 'object' ? branch.countryId : null;
+      branch.countryId && typeof branch.countryId === "object"
+        ? branch.countryId
+        : null;
     json.branch = {
       id: branch.id,
       name: branch.name,
       code: branch.code,
-      countryId: country?.id ?? (typeof branch.countryId === 'string' ? branch.countryId : null),
+      countryId:
+        country?.id ??
+        (typeof branch.countryId === "string" ? branch.countryId : null),
       createdAt: branch.createdAt,
       updatedAt: branch.updatedAt,
       country,
@@ -39,14 +44,14 @@ const userRepository = {
   async create(data) {
     const user = await User.create(data);
     const populated = await User.findById(user._id)
-      .select('-password')
+      .select("-password")
       .populate(branchCountryPopulate);
     return mapUserWithBranch(populated);
   },
 
   async findById(id) {
     const user = await User.findById(id)
-      .select('-password')
+      .select("-password")
       .populate(branchCountryPopulate);
     return mapUserWithBranch(user);
   },
@@ -67,7 +72,9 @@ const userRepository = {
     if (filters.branchId) query.branchId = filters.branchId;
 
     if (filters.countryId) {
-      const branchIds = await Branch.find({ countryId: filters.countryId }).distinct('_id');
+      const branchIds = await Branch.find({
+        countryId: filters.countryId,
+      }).distinct("_id");
       query.branchId = { $in: branchIds };
     }
 
@@ -80,7 +87,7 @@ const userRepository = {
 
     const [rows, total] = await Promise.all([
       User.find(query)
-        .select('-password')
+        .select("-password")
         .populate(branchCountryPopulate)
         .sort({ createdAt: -1 })
         .skip(skip)
@@ -93,13 +100,13 @@ const userRepository = {
 
   async update(id, data) {
     const user = await User.findByIdAndUpdate(id, data, { new: true })
-      .select('-password')
+      .select("-password")
       .populate(branchCountryPopulate);
     return mapUserWithBranch(user);
   },
 
   async delete(id) {
-    const user = await User.findById(id).select('_id email');
+    const user = await User.findById(id).select("_id email");
     if (!user) return null;
 
     await Promise.all([
@@ -112,8 +119,28 @@ const userRepository = {
     return { id: user._id, email: user.email };
   },
 
+  async findManyByIds(ids) {
+    return User.find({ _id: { $in: ids } })
+      .select("_id")
+      .lean();
+  },
+
+  async bulkDelete(ids) {
+    const users = await User.find({ _id: { $in: ids } }).select("_id");
+    if (!users.length) return 0;
+
+    await Promise.all([
+      UserProduct.deleteMany({ userId: { $in: ids } }),
+      Sale.deleteMany({ userId: { $in: ids } }),
+      RefreshToken.deleteMany({ userId: { $in: ids } }),
+      User.deleteMany({ _id: { $in: ids } }),
+    ]);
+
+    return users.length;
+  },
+
   async branchExists(branchId) {
-    const branch = await Branch.findById(branchId).select('_id');
+    const branch = await Branch.findById(branchId).select("_id");
     return branch ? { id: branch._id } : null;
   },
 };

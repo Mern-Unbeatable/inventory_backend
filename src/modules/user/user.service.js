@@ -1,21 +1,21 @@
-import userRepository from './user.repository.js';
-import ApiError from '../../utils/ApiError.js';
-import { hashPassword } from '../../utils/bcrypt.js';
+import userRepository from "./user.repository.js";
+import ApiError from "../../utils/ApiError.js";
+import { hashPassword } from "../../utils/bcrypt.js";
 
-const STAFF_ROLES = ['ADMIN', 'SELLER'];
+const STAFF_ROLES = ["ADMIN", "SELLER"];
 
 const assertStaffUser = (user, { forMutation = false } = {}) => {
   if (!user) {
-    throw ApiError.notFound('User not found');
+    throw ApiError.notFound("User not found");
   }
 
-  if (user.role === 'CUSTOMER') {
+  if (user.role === "CUSTOMER") {
     if (forMutation) {
       throw ApiError.badRequest(
-        'Portal customer accounts are managed from the Customers module, not Users.'
+        "Portal customer accounts are managed from the Customers module, not Users.",
       );
     }
-    throw ApiError.notFound('User not found');
+    throw ApiError.notFound("User not found");
   }
 
   return user;
@@ -23,27 +23,27 @@ const assertStaffUser = (user, { forMutation = false } = {}) => {
 
 const userService = {
   async create(payload) {
-    if (payload.role === 'CUSTOMER') {
+    if (payload.role === "CUSTOMER") {
       throw ApiError.badRequest(
-        'Customer portal accounts are created from the Customers module, not Users.'
+        "Customer portal accounts are created from the Customers module, not Users.",
       );
     }
 
     const email = payload.email.toLowerCase();
     const existing = await userRepository.findByEmail(email);
     if (existing) {
-      throw ApiError.conflict('Email already registered');
+      throw ApiError.conflict("Email already registered");
     }
 
     if (payload.branchId) {
       const branch = await userRepository.branchExists(payload.branchId);
       if (!branch) {
-        throw ApiError.badRequest('Branch does not exist');
+        throw ApiError.badRequest("Branch does not exist");
       }
     }
 
-    if (payload.role === 'SELLER' && !payload.branchId) {
-      throw ApiError.badRequest('Sellers must be assigned to a branch');
+    if (payload.role === "SELLER" && !payload.branchId) {
+      throw ApiError.badRequest("Sellers must be assigned to a branch");
     }
 
     const hashed = await hashPassword(payload.password);
@@ -52,8 +52,11 @@ const userService = {
       name: payload.name,
       email,
       password: hashed,
-      role: payload.role || 'SELLER',
-      branchId: payload.role === 'ADMIN' ? (payload.branchId ?? null) : payload.branchId,
+      role: payload.role || "SELLER",
+      branchId:
+        payload.role === "ADMIN"
+          ? (payload.branchId ?? null)
+          : payload.branchId,
     });
   },
 
@@ -89,8 +92,8 @@ const userService = {
     assertStaffUser(user);
 
     // Sellers may only view their own profile
-    if (requester.role === 'SELLER' && requester.id !== id) {
-      throw ApiError.forbidden('You can only view your own profile');
+    if (requester.role === "SELLER" && requester.id !== id) {
+      throw ApiError.forbidden("You can only view your own profile");
     }
 
     return user;
@@ -100,9 +103,9 @@ const userService = {
     const user = await userRepository.findById(id);
     assertStaffUser(user, { forMutation: true });
 
-    if (payload.role === 'CUSTOMER') {
+    if (payload.role === "CUSTOMER") {
       throw ApiError.badRequest(
-        'Customer portal accounts are managed from the Customers module, not Users.'
+        "Customer portal accounts are managed from the Customers module, not Users.",
       );
     }
 
@@ -110,7 +113,7 @@ const userService = {
       const email = payload.email.toLowerCase();
       const existing = await userRepository.findByEmail(email);
       if (existing && existing.id !== id) {
-        throw ApiError.conflict('Email already registered');
+        throw ApiError.conflict("Email already registered");
       }
       payload.email = email;
     }
@@ -118,7 +121,7 @@ const userService = {
     if (payload.branchId) {
       const branch = await userRepository.branchExists(payload.branchId);
       if (!branch) {
-        throw ApiError.badRequest('Branch does not exist');
+        throw ApiError.badRequest("Branch does not exist");
       }
     }
 
@@ -126,8 +129,8 @@ const userService = {
     const nextBranchId =
       payload.branchId !== undefined ? payload.branchId : user.branchId;
 
-    if (nextRole === 'SELLER' && !nextBranchId) {
-      throw ApiError.badRequest('Sellers must be assigned to a branch');
+    if (nextRole === "SELLER" && !nextBranchId) {
+      throw ApiError.badRequest("Sellers must be assigned to a branch");
     }
 
     const data = { ...payload };
@@ -140,13 +143,38 @@ const userService = {
 
   async remove(id, requesterId) {
     if (id === requesterId) {
-      throw ApiError.badRequest('You cannot delete your own account');
+      throw ApiError.badRequest("You cannot delete your own account");
     }
 
     const user = await userRepository.findById(id);
     assertStaffUser(user, { forMutation: true });
 
     return userRepository.delete(id);
+  },
+
+  async bulkRemove(ids, requesterId) {
+    const uniqueIds = [...new Set(ids)];
+    if (!uniqueIds.length) {
+      throw ApiError.badRequest("At least one user is required");
+    }
+
+    const invalidSelfDelete = uniqueIds.includes(requesterId);
+    if (invalidSelfDelete) {
+      throw ApiError.badRequest("You cannot delete your own account");
+    }
+
+    const existingUsers = await userRepository.findManyByIds(uniqueIds);
+    const existingIds = existingUsers.map((user) => user.id);
+    const missingIds = uniqueIds.filter((id) => !existingIds.includes(id));
+
+    if (missingIds.length) {
+      throw ApiError.notFound(
+        `Some user records could not be found: ${missingIds.join(", ")}`,
+      );
+    }
+
+    const deletedCount = await userRepository.bulkDelete(uniqueIds);
+    return { deletedCount, ids: uniqueIds };
   },
 };
 
