@@ -1,8 +1,8 @@
-import { Country } from '../../models/Country.js';
-import { Branch } from '../../models/Branch.js';
-import { User } from '../../models/User.js';
-import { toApi } from '../../utils/mongooseHelpers.js';
-import { containsInsensitive } from '../../utils/queryHelpers.js';
+import { Country } from "../../models/Country.js";
+import { Branch } from "../../models/Branch.js";
+import { User } from "../../models/User.js";
+import { toApi } from "../../utils/mongooseHelpers.js";
+import { containsInsensitive } from "../../utils/queryHelpers.js";
 
 const mapCountry = async (doc, { withBranches = false } = {}) => {
   if (!doc) return null;
@@ -11,7 +11,9 @@ const mapCountry = async (doc, { withBranches = false } = {}) => {
   json._count = { branches: branchCount };
 
   if (withBranches) {
-    const branches = await Branch.find({ countryId: json.id }).sort({ name: 1 });
+    const branches = await Branch.find({ countryId: json.id }).sort({
+      name: 1,
+    });
     json.branches = branches.map(toApi);
   }
 
@@ -22,12 +24,14 @@ const mapBranch = async (doc) => {
   if (!doc) return null;
   const json = toApi(doc);
   const country =
-    json.countryId && typeof json.countryId === 'object' ? json.countryId : null;
+    json.countryId && typeof json.countryId === "object"
+      ? json.countryId
+      : null;
 
   if (country) {
     json.country = country;
     json.countryId = country.id;
-  } else if (typeof json.countryId === 'string') {
+  } else if (typeof json.countryId === "string") {
     json.country = null;
   }
 
@@ -61,10 +65,10 @@ const branchRepository = {
     const country = await Country.findById(id);
     if (!country) return null;
 
-    const branchIds = await Branch.find({ countryId: id }).distinct('_id');
+    const branchIds = await Branch.find({ countryId: id }).distinct("_id");
     await User.updateMany(
       { branchId: { $in: branchIds } },
-      { $set: { branchId: null } }
+      { $set: { branchId: null } },
     );
     await Branch.deleteMany({ countryId: id });
     await Country.deleteOne({ _id: id });
@@ -73,12 +77,12 @@ const branchRepository = {
 
   async createBranch(data) {
     const branch = await Branch.create(data);
-    const populated = await Branch.findById(branch._id).populate('countryId');
+    const populated = await Branch.findById(branch._id).populate("countryId");
     return mapBranch(populated);
   },
 
   async findBranchById(id) {
-    const branch = await Branch.findById(id).populate('countryId');
+    const branch = await Branch.findById(id).populate("countryId");
     return mapBranch(branch);
   },
 
@@ -95,7 +99,7 @@ const branchRepository = {
 
     const [rows, total] = await Promise.all([
       Branch.find(query)
-        .populate('countryId')
+        .populate("countryId")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(take),
@@ -107,19 +111,37 @@ const branchRepository = {
   },
 
   async updateBranch(id, data) {
-    const branch = await Branch.findByIdAndUpdate(id, data, { new: true }).populate(
-      'countryId'
-    );
+    const branch = await Branch.findByIdAndUpdate(id, data, {
+      new: true,
+    }).populate("countryId");
     return mapBranch(branch);
   },
 
   async deleteBranch(id) {
-    const branch = await Branch.findById(id).populate('countryId');
+    const branch = await Branch.findById(id).populate("countryId");
     if (!branch) return null;
 
     await User.updateMany({ branchId: id }, { $set: { branchId: null } });
     await Branch.deleteOne({ _id: id });
     return mapBranch(branch);
+  },
+
+  async findManyByIds(ids) {
+    return Branch.find({ _id: { $in: ids } })
+      .select("_id")
+      .lean();
+  },
+
+  async bulkDeleteBranches(ids) {
+    const branches = await Branch.find({ _id: { $in: ids } }).select("_id");
+    if (!branches.length) return 0;
+
+    await Promise.all([
+      User.updateMany({ branchId: { $in: ids } }, { $set: { branchId: null } }),
+      Branch.deleteMany({ _id: { $in: ids } }),
+    ]);
+
+    return branches.length;
   },
 };
 

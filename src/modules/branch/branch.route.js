@@ -1,9 +1,10 @@
-import { Router } from 'express';
-import branchController from './branch.controller.js';
-import authenticate from '../../middlewares/auth.middleware.js';
-import authorize from '../../middlewares/role.middleware.js';
-import validate from '../../middlewares/validate.middleware.js';
+import { Router } from "express";
+import branchController from "./branch.controller.js";
+import authenticate from "../../middlewares/auth.middleware.js";
+import authorize from "../../middlewares/role.middleware.js";
+import validate from "../../middlewares/validate.middleware.js";
 import {
+  bulkBranchDeleteSchema,
   createCountrySchema,
   updateCountrySchema,
   countryIdParamSchema,
@@ -11,7 +12,7 @@ import {
   updateBranchSchema,
   branchIdParamSchema,
   listBranchesQuerySchema,
-} from './branch.validation.js';
+} from "./branch.validation.js";
 
 /** Country routes — mounted at /api/countries */
 export const countryRoutes = Router();
@@ -19,34 +20,34 @@ export const countryRoutes = Router();
 countryRoutes.use(authenticate);
 
 countryRoutes.get(
-  '/',
-  authorize('ADMIN', 'SELLER'),
-  branchController.listCountries
+  "/",
+  authorize("ADMIN", "SELLER"),
+  branchController.listCountries,
 );
 countryRoutes.get(
-  '/:id',
-  authorize('ADMIN', 'SELLER'),
+  "/:id",
+  authorize("ADMIN", "SELLER"),
   validate({ params: countryIdParamSchema }),
-  branchController.getCountry
+  branchController.getCountry,
 );
 
 countryRoutes.post(
-  '/',
-  authorize('ADMIN'),
+  "/",
+  authorize("ADMIN"),
   validate({ body: createCountrySchema }),
-  branchController.createCountry
+  branchController.createCountry,
 );
 countryRoutes.patch(
-  '/:id',
-  authorize('ADMIN'),
+  "/:id",
+  authorize("ADMIN"),
   validate({ params: countryIdParamSchema, body: updateCountrySchema }),
-  branchController.updateCountry
+  branchController.updateCountry,
 );
 countryRoutes.delete(
-  '/:id',
-  authorize('ADMIN'),
+  "/:id",
+  authorize("ADMIN"),
   validate({ params: countryIdParamSchema }),
-  branchController.deleteCountry
+  branchController.deleteCountry,
 );
 
 /** Branch routes — mounted at /api/branches */
@@ -55,35 +56,42 @@ const branchRoutes = Router();
 branchRoutes.use(authenticate);
 
 branchRoutes.get(
-  '/',
-  authorize('ADMIN', 'SELLER'),
+  "/",
+  authorize("ADMIN", "SELLER"),
   validate({ query: listBranchesQuerySchema }),
-  branchController.list
+  branchController.list,
 );
 branchRoutes.get(
-  '/:id',
-  authorize('ADMIN', 'SELLER'),
+  "/:id",
+  authorize("ADMIN", "SELLER"),
   validate({ params: branchIdParamSchema }),
-  branchController.getById
+  branchController.getById,
 );
 
 branchRoutes.post(
-  '/',
-  authorize('ADMIN'),
+  "/",
+  authorize("ADMIN"),
   validate({ body: createBranchSchema }),
-  branchController.create
+  branchController.create,
 );
 branchRoutes.patch(
-  '/:id',
-  authorize('ADMIN'),
+  "/:id",
+  authorize("ADMIN"),
   validate({ params: branchIdParamSchema, body: updateBranchSchema }),
-  branchController.update
+  branchController.update,
 );
 branchRoutes.delete(
-  '/:id',
-  authorize('ADMIN'),
+  "/bulk",
+  authorize("ADMIN"),
+  validate({ body: bulkBranchDeleteSchema }),
+  branchController.bulkRemove,
+);
+
+branchRoutes.delete(
+  "/:id",
+  authorize("ADMIN"),
   validate({ params: branchIdParamSchema }),
-  branchController.remove
+  branchController.remove,
 );
 
 export default branchRoutes;

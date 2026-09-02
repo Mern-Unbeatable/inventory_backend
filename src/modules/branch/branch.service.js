@@ -1,6 +1,6 @@
-import branchRepository from './branch.repository.js';
-import { Branch } from '../../models/Branch.js';
-import ApiError from '../../utils/ApiError.js';
+import branchRepository from "./branch.repository.js";
+import { Branch } from "../../models/Branch.js";
+import ApiError from "../../utils/ApiError.js";
 
 const branchService = {
   // ---- Country ----
@@ -14,11 +14,13 @@ const branchService = {
   async listCountries(requester) {
     const countries = await branchRepository.findAllCountries();
 
-    if (requester?.role === 'SELLER') {
+    if (requester?.role === "SELLER") {
       if (!requester.branchId) {
         return [];
       }
-      const branch = await Branch.findById(requester.branchId).select('countryId');
+      const branch = await Branch.findById(requester.branchId).select(
+        "countryId",
+      );
       if (!branch?.countryId) return [];
       return countries.filter((country) => country.id === branch.countryId);
     }
@@ -29,16 +31,20 @@ const branchService = {
   async getCountry(id, requester) {
     const country = await branchRepository.findCountryById(id);
     if (!country) {
-      throw ApiError.notFound('Country not found');
+      throw ApiError.notFound("Country not found");
     }
 
-    if (requester?.role === 'SELLER') {
+    if (requester?.role === "SELLER") {
       if (!requester.branchId) {
-        throw ApiError.forbidden('Your seller account is not assigned to a branch');
+        throw ApiError.forbidden(
+          "Your seller account is not assigned to a branch",
+        );
       }
-      const branch = await Branch.findById(requester.branchId).select('countryId');
+      const branch = await Branch.findById(requester.branchId).select(
+        "countryId",
+      );
       if (!branch || branch.countryId !== id) {
-        throw ApiError.forbidden('You can only access your assigned country');
+        throw ApiError.forbidden("You can only access your assigned country");
       }
     }
 
@@ -64,7 +70,7 @@ const branchService = {
   async createBranch(payload) {
     const country = await branchRepository.findCountryById(payload.countryId);
     if (!country) {
-      throw ApiError.badRequest('Country does not exist');
+      throw ApiError.badRequest("Country does not exist");
     }
 
     return branchRepository.createBranch({
@@ -80,7 +86,7 @@ const branchService = {
 
     const filters = { countryId, search };
 
-    if (requester?.role === 'SELLER') {
+    if (requester?.role === "SELLER") {
       if (!requester.branchId) {
         return {
           items: [],
@@ -110,11 +116,11 @@ const branchService = {
   async getBranch(id, requester) {
     const branch = await branchRepository.findBranchById(id);
     if (!branch) {
-      throw ApiError.notFound('Branch not found');
+      throw ApiError.notFound("Branch not found");
     }
 
-    if (requester?.role === 'SELLER' && id !== requester.branchId) {
-      throw ApiError.forbidden('You can only access your assigned branch');
+    if (requester?.role === "SELLER" && id !== requester.branchId) {
+      throw ApiError.forbidden("You can only access your assigned branch");
     }
 
     return branch;
@@ -126,20 +132,42 @@ const branchService = {
     if (payload.countryId) {
       const country = await branchRepository.findCountryById(payload.countryId);
       if (!country) {
-        throw ApiError.badRequest('Country does not exist');
+        throw ApiError.badRequest("Country does not exist");
       }
     }
 
     return branchRepository.updateBranch(id, {
       ...(payload.name !== undefined ? { name: payload.name.trim() } : {}),
       ...(payload.code !== undefined ? { code: payload.code } : {}),
-      ...(payload.countryId !== undefined ? { countryId: payload.countryId } : {}),
+      ...(payload.countryId !== undefined
+        ? { countryId: payload.countryId }
+        : {}),
     });
   },
 
   async deleteBranch(id) {
     await this.getBranch(id);
     return branchRepository.deleteBranch(id);
+  },
+
+  async bulkDeleteBranches(ids) {
+    const uniqueIds = [...new Set(ids)];
+    if (!uniqueIds.length) {
+      throw ApiError.badRequest("At least one branch is required");
+    }
+
+    const existingBranches = await branchRepository.findManyByIds(uniqueIds);
+    const existingIds = existingBranches.map((branch) => branch.id);
+    const missingIds = uniqueIds.filter((id) => !existingIds.includes(id));
+
+    if (missingIds.length) {
+      throw ApiError.notFound(
+        `Some branch records could not be found: ${missingIds.join(", ")}`,
+      );
+    }
+
+    const deletedCount = await branchRepository.bulkDeleteBranches(uniqueIds);
+    return { deletedCount, ids: uniqueIds };
   },
 };
 

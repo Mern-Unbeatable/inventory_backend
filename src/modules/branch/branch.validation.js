@@ -1,6 +1,6 @@
-import { z } from 'zod';
+import { z } from "zod";
 
-const uuid = z.string().uuid('Invalid id');
+const uuid = z.string().uuid("Invalid id");
 
 export const createCountrySchema = z.object({
   name: z.string().min(2).max(100),
@@ -13,7 +13,7 @@ export const updateCountrySchema = z
     code: z.string().min(2).max(10).optional().nullable(),
   })
   .refine((data) => Object.keys(data).length > 0, {
-    message: 'At least one field is required',
+    message: "At least one field is required",
   });
 
 export const countryIdParamSchema = z.object({ id: uuid });
@@ -31,10 +31,17 @@ export const updateBranchSchema = z
     countryId: uuid.optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
-    message: 'At least one field is required',
+    message: "At least one field is required",
   });
 
 export const branchIdParamSchema = z.object({ id: uuid });
+
+export const bulkBranchDeleteSchema = z.object({
+  ids: z
+    .array(uuid)
+    .min(1, "At least one branch is required")
+    .max(100, "Too many branches selected"),
+});
 
 export const listBranchesQuerySchema = z.object({
   countryId: z.string().uuid().optional(),
