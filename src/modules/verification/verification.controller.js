@@ -3,34 +3,38 @@ import ApiResponse from "../../utils/ApiResponse.js";
 import catchAsync from "../../utils/catchAsync.js";
 
 const verificationController = {
-  // ---- Admin ----
+  // ---- Authenticated (ADMIN + SELLER) ----
   create: catchAsync(async (req, res) => {
-    const data = await verificationService.create(req.body);
+    const data = await verificationService.create(req.body, req.user);
     return ApiResponse.created(res, data, "Verification created successfully");
   }),
 
   list: catchAsync(async (req, res) => {
-    const data = await verificationService.list(req.query);
+    const data = await verificationService.list(req.query, req.user);
     return ApiResponse.success(res, data, "Verifications fetched successfully");
   }),
 
   getById: catchAsync(async (req, res) => {
-    const data = await verificationService.getById(req.params.id);
+    const data = await verificationService.getById(req.params.id, req.user);
     return ApiResponse.success(res, data, "Verification fetched successfully");
   }),
 
   update: catchAsync(async (req, res) => {
-    const data = await verificationService.update(req.params.id, req.body);
+    const data = await verificationService.update(
+      req.params.id,
+      req.body,
+      req.user,
+    );
     return ApiResponse.success(res, data, "Verification updated successfully");
   }),
 
   remove: catchAsync(async (req, res) => {
-    const data = await verificationService.remove(req.params.id);
+    const data = await verificationService.remove(req.params.id, req.user);
     return ApiResponse.success(res, data, "Verification deleted successfully");
   }),
 
   bulkRemove: catchAsync(async (req, res) => {
-    const data = await verificationService.bulkRemove(req.body.ids);
+    const data = await verificationService.bulkRemove(req.body.ids, req.user);
     return ApiResponse.success(
       res,
       data,
@@ -40,7 +44,9 @@ const verificationController = {
 
   // ---- Public ----
   verify: catchAsync(async (req, res) => {
-    const data = await verificationService.verifyByQrId(req.params.qrId);
+    const data = await verificationService.verifyByQrId(req.params.qrId, {
+      recordScan: req.query.recordScan,
+    });
     return ApiResponse.success(res, data, "Product verified successfully");
   }),
 };

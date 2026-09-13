@@ -39,6 +39,18 @@ export const bulkVerificationDeleteSchema = z.object({
 
 export const qrIdParamSchema = z.object({ qrId });
 
+const queryBoolean = z.preprocess((value) => {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (value === true || value === "true" || value === "1") return true;
+  if (value === false || value === "false" || value === "0") return false;
+  return value;
+}, z.boolean());
+
+/** Public verify — `recordScan=false` returns product info without appending a scan. */
+export const verifyQuerySchema = z.object({
+  recordScan: queryBoolean.optional().default(true),
+});
+
 export const listVerificationsQuerySchema = z.object({
   status: z.enum(["ACTIVE", "DISABLED"]).optional(),
   page: z.coerce.number().int().min(1).default(1),

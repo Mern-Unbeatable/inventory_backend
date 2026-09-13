@@ -3,6 +3,16 @@ import inventoryRepository from '../inventory/inventory.repository.js';
 import customerRepository from '../customer/customer.repository.js';
 import ApiError from '../../utils/ApiError.js';
 import { deleteStoredFile } from '../../utils/fileStorage.js';
+import {
+  mapProductToExportRow,
+  parseCsvToRows,
+  parseJsonToRows,
+  parseXlsxToRows,
+  productsToCsv,
+  productsToJson,
+  productsToXlsxBuffer,
+} from './productImportExport.js';
+import { importProductRowSchema } from './product.validation.js';
 
 const mapSellerProduct = (product) => {
   if (!product) return null;
@@ -356,6 +366,151 @@ const productService = {
   async remove(id) {
     await this.getById(id, { role: 'ADMIN' });
     return productRepository.delete(id);
+  },
+
+  async exportProducts(query, requester) {
+    const format = query.format || 'csv';
+    const items = [];
+    let page = 1;
+    let totalPages = 1;
+
+    do {
+      const pageResult = await this.list(
+        {
+          page,
+          limit: 100,
+          search: query.search,
+          minPrice: query.minPrice,
+          maxPrice: query.maxPrice,
+        },
+        requester,
+      );
+      items.push(...(pageResult.items || []));
+      totalPages = pageResult.meta?.totalPages || 1;
+      page += 1;
+    } while (page <= totalPages);
+
+    const rows = items.map(mapProductToExportRow);
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    if (format === 'xlsx') {
+      const buffer = await productsToXlsxBuffer(rows);
+      return {
+        buffer,
+        contentType:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        filename: `products-export-${stamp}.xlsx`,
+      };
+    }
+
+    if (format === 'json') {
+      return {
+        buffer: Buffer.from(productsToJson(rows), 'utf8'),
+        contentType: 'application/json; charset=utf-8',
+        filename: `products-export-${stamp}.json`,
+      };
+    }
+
+    const csv = productsToCsv(rows);
+    return {
+      buffer: Buffer.from(csv, 'utf8'),
+      contentType: 'text/csv; charset=utf-8',
+      filename: `products-export-${stamp}.csv`,
+    };
+  },
+
+  async importProducts(file, requester) {
+    if (!file?.buffer) {
+      throw ApiError.badRequest('Spreadsheet file is required');
+    }
+
+    const name = String(file.originalname || '').toLowerCase();
+    const mime = String(file.mimetype || '');
+    const isXlsx = name.endsWith('.xlsx');
+    const isCsv = name.endsWith('.csv') || mime === 'text/csv';
+    const isJson = name.endsWith('.json') || mime === 'application/json';
+
+    if (!isXlsx && !isCsv && !isJson) {
+      throw ApiError.badRequest('Invalid file. Allowed types: csv, xlsx, json');
+    }
+
+    let rawRows;
+    try {
+      if (isXlsx) {
+        rawRows = await parseXlsxToRows(file.buffer);
+      } else if (isJson) {
+        rawRows = parseJsonToRows(file.buffer.toString('utf8'));
+      } else {
+        rawRows = parseCsvToRows(file.buffer.toString('utf8'));
+      }
+    } catch (error) {
+      throw ApiError.badRequest(error?.message || 'Failed to parse file');
+    }
+    if (!rawRows.length) {
+      throw ApiError.badRequest('No product rows found in the file');
+    }
+
+    if (rawRows.length > 500) {
+      throw ApiError.badRequest('Import is limited to 500 rows per file');
+    }
+
+    const created = [];
+    const failed = [];
+
+    for (const raw of rawRows) {
+      const rowNumber = raw.__rowNumber || failed.length + created.length + 2;
+      try {
+        const parsed = importProductRowSchema.parse({
+          title: raw.title,
+          sku: raw.sku,
+          description: raw.description || undefined,
+          price: raw.price === '' || raw.price == null ? 0 : raw.price,
+          quantity: raw.quantity === '' || raw.quantity == null ? 0 : raw.quantity,
+          assignUserId: raw.assignUserId || undefined,
+        });
+
+        // Sellers ignore assignUserId — ownership/stock follows create() rules.
+        const payload =
+          requester?.role === 'SELLER'
+            ? {
+                title: parsed.title,
+                sku: parsed.sku,
+                description: parsed.description,
+                price: parsed.price,
+                quantity: parsed.quantity,
+              }
+            : parsed;
+
+        const product = await this.create(payload, null, requester);
+        created.push({
+          row: rowNumber,
+          id: product.id,
+          sku: product.sku,
+          title: product.title,
+        });
+      } catch (error) {
+        let message = error?.message || 'Invalid row';
+        if (error?.name === 'ZodError') {
+          message = error.errors.map((e) => e.message).join('; ');
+        } else if (error?.statusCode && error?.message) {
+          message = error.message;
+        }
+        failed.push({
+          row: rowNumber,
+          sku: raw.sku || null,
+          title: raw.title || null,
+          message,
+        });
+      }
+    }
+
+    return {
+      totalRows: rawRows.length,
+      successCount: created.length,
+      failureCount: failed.length,
+      created,
+      failed,
+    };
   },
 };
 

@@ -47,3 +47,29 @@ export const listProductsQuerySchema = z.object({
   minPrice: z.coerce.number().min(0).optional(),
   maxPrice: z.coerce.number().min(0).optional(),
 });
+
+export const exportProductsQuerySchema = z.object({
+  format: z.enum(["csv", "xlsx", "json"]).default("csv"),
+  search: z.string().optional(),
+  minPrice: z.coerce.number().min(0).optional(),
+  maxPrice: z.coerce.number().min(0).optional(),
+});
+
+/** Soft validation for one import row (service adds ownership rules). */
+export const importProductRowSchema = z.object({
+  title: z.string().trim().min(2).max(200),
+  sku: z.string().trim().min(2).max(100),
+  description: z.preprocess(
+    emptyToUndefined,
+    z.string().max(2000).optional().nullable()
+  ),
+  price: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().min(0).optional().default(0)
+  ),
+  quantity: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().min(0).optional().default(0)
+  ),
+  assignUserId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
+});

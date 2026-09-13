@@ -3,12 +3,16 @@ import productController from './product.controller.js';
 import authenticate from '../../middlewares/auth.middleware.js';
 import authorize from '../../middlewares/role.middleware.js';
 import validate from '../../middlewares/validate.middleware.js';
-import { uploadProductImage } from '../../middlewares/upload.middleware.js';
+import {
+  uploadProductImage,
+  uploadProductSpreadsheet,
+} from '../../middlewares/upload.middleware.js';
 import {
   createProductSchema,
   updateProductSchema,
   productIdParamSchema,
   listProductsQuerySchema,
+  exportProductsQuerySchema,
 } from './product.validation.js';
 
 const router = Router();
@@ -22,6 +26,21 @@ router.post(
   uploadProductImage,
   validate({ body: createProductSchema }),
   productController.create
+);
+
+// Export / import must be registered before `/:id`
+router.get(
+  '/export',
+  authorize('ADMIN', 'SELLER'),
+  validate({ query: exportProductsQuerySchema }),
+  productController.exportProducts
+);
+
+router.post(
+  '/import',
+  authorize('ADMIN', 'SELLER'),
+  uploadProductSpreadsheet,
+  productController.importProducts
 );
 
 // Admin: full catalog. Seller: only products assigned by admin / self-created.

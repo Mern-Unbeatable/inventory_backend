@@ -100,3 +100,51 @@ export const uploadProductImage = createUploadMiddleware({
   fieldName: 'image',
   optional: true,
 });
+
+/**
+ * Spreadsheet upload for product import (CSV / XLSX). Kept in memory only.
+ */
+export const uploadProductSpreadsheet = (() => {
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: Math.max(uploadConfig.maxFileSize, 5 * 1024 * 1024) },
+    fileFilter: (_req, file, cb) => {
+      const name = String(file.originalname || '').toLowerCase();
+      const allowed =
+        name.endsWith('.csv') ||
+        name.endsWith('.xlsx') ||
+        name.endsWith('.json') ||
+        file.mimetype === 'text/csv' ||
+        file.mimetype === 'application/json' ||
+        file.mimetype === 'application/vnd.ms-excel' ||
+        file.mimetype ===
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+      if (!allowed) {
+        return cb(
+          ApiError.badRequest('Invalid file. Allowed types: csv, xlsx, json')
+        );
+      }
+      return cb(null, true);
+    },
+  }).single('file');
+
+  return (req, res, next) => {
+    upload(req, res, (err) => {
+      if (err) {
+        if (err instanceof ApiError) return next(err);
+        if (err instanceof multer.MulterError) {
+          if (err.code === 'LIMIT_FILE_SIZE') {
+            return next(ApiError.badRequest('File must be 5MB or smaller'));
+          }
+          return next(ApiError.badRequest(err.message));
+        }
+        return next(err);
+      }
+      if (!req.file) {
+        return next(ApiError.badRequest('Spreadsheet file is required'));
+      }
+      return next();
+    });
+  };
+})();

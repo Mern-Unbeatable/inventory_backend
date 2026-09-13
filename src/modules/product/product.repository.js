@@ -106,6 +106,28 @@ const productRepository = {
     return withSellerAssignment(product, userId);
   },
 
+  /**
+   * Seller-eligible products: assigned via UserProduct OR owned (ownerId).
+   * Used by verification and other seller-scoped features.
+   */
+  async isAccessibleBySeller(productId, sellerId) {
+    const owned = await Product.exists({ _id: productId, ownerId: sellerId });
+    if (owned) return true;
+    const assigned = await UserProduct.exists({
+      productId,
+      userId: sellerId,
+    });
+    return Boolean(assigned);
+  },
+
+  async findAccessibleProductIdsForSeller(sellerId) {
+    const [assignedIds, ownedIds] = await Promise.all([
+      UserProduct.find({ userId: sellerId }).distinct("productId"),
+      Product.find({ ownerId: sellerId }).distinct("_id"),
+    ]);
+    return [...new Set([...assignedIds.map(String), ...ownedIds.map(String)])];
+  },
+
   async findByIdForCustomer(id, { countryId = null } = {}) {
     const product = await Product.findById(id);
     if (!product) return null;
@@ -158,7 +180,8 @@ const productRepository = {
     let countrySellerIds = null;
 
     if (sellerId) {
-      const productIds = await UserProduct.find({ userId: sellerId }).distinct('productId');
+      const productIds =
+        await this.findAccessibleProductIdsForSeller(sellerId);
       query._id = { $in: productIds };
     }
 

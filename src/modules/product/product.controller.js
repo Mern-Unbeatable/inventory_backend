@@ -36,6 +36,21 @@ const productController = {
     const data = await productService.remove(req.params.id);
     return ApiResponse.success(res, data, 'Product deleted successfully');
   }),
+
+  exportProducts: catchAsync(async (req, res) => {
+    const file = await productService.exportProducts(req.query, req.user);
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${file.filename}"`
+    );
+    return res.status(200).send(file.buffer);
+  }),
+
+  importProducts: catchAsync(async (req, res) => {
+    const data = await productService.importProducts(req.file, req.user);
+    return ApiResponse.success(res, data, 'Product import completed');
+  }),
 };
 
 export default productController;

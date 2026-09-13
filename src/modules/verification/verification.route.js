@@ -9,6 +9,7 @@ import {
   updateVerificationSchema,
   verificationIdParamSchema,
   qrIdParamSchema,
+  verifyQuerySchema,
   listVerificationsQuerySchema,
 } from "./verification.validation.js";
 
@@ -17,15 +18,15 @@ export const publicVerificationRoutes = Router();
 
 publicVerificationRoutes.get(
   "/:qrId",
-  validate({ params: qrIdParamSchema }),
+  validate({ params: qrIdParamSchema, query: verifyQuerySchema }),
   verificationController.verify,
 );
 
-/** Admin router — mounted at /api/verifications. ADMIN only. */
+/** Admin + Seller router — mounted at /api/verifications. */
 const router = Router();
 
 router.use(authenticate);
-router.use(authorize("ADMIN"));
+router.use(authorize("ADMIN", "SELLER"));
 
 router.post(
   "/",

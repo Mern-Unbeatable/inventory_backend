@@ -32,6 +32,10 @@ const verificationRepository = {
     return ProductVerification.findById(id);
   },
 
+  async findByProductId(productId) {
+    return ProductVerification.findOne({ productId });
+  },
+
   async existsForProduct(productId) {
     return Product.exists({ _id: productId });
   },
@@ -57,7 +61,9 @@ const verificationRepository = {
   },
 
   async findManyByIds(ids) {
-    return ProductVerification.find({ _id: { $in: ids } }).select("_id");
+    return ProductVerification.find({ _id: { $in: ids } }).select(
+      "_id productId",
+    );
   },
 
   async bulkRemove(ids) {
@@ -74,6 +80,12 @@ const verificationRepository = {
 
     const result = await ProductVerification.deleteMany({ _id: { $in: ids } });
     return result.deletedCount || 0;
+  },
+
+  /** Read aggregated scan stats without creating a scan record. */
+  async getScanStats(verificationId) {
+    const stats = (await scanStatsFor([verificationId])).get(verificationId);
+    return stats || emptyStats;
   },
 
   /** Append a scan record and return the aggregated stats for this verification. */
@@ -98,14 +110,19 @@ const verificationRepository = {
     if (!doc) return null;
     const json = toApi(doc);
     const [product, statsMap] = await Promise.all([
-      Product.findById(json.productId).select("title sku"),
+      Product.findById(json.productId).select("title sku imageUrl"),
       scanStatsFor([json.id]),
     ]);
     const stats = statsMap.get(json.id) || emptyStats;
     return {
       ...json,
       product: product
-        ? { id: product._id, title: product.title, sku: product.sku }
+        ? {
+            id: product._id,
+            title: product.title,
+            sku: product.sku,
+            imageUrl: product.imageUrl,
+          }
         : null,
       totalScans: stats.totalScans,
       firstScannedAt: stats.firstScannedAt,
@@ -118,6 +135,9 @@ const verificationRepository = {
     if (filters.status) query.status = filters.status;
     if (filters.search) {
       query.qrId = containsInsensitive(filters.search);
+    }
+    if (filters.productIds) {
+      query.productId = { $in: filters.productIds };
     }
 
     const [rows, total] = await Promise.all([
@@ -132,10 +152,13 @@ const verificationRepository = {
     const productIds = rows.map((row) => row.productId);
     const [statsMap, products] = await Promise.all([
       scanStatsFor(ids),
-      Product.find({ _id: { $in: productIds } }).select("title sku"),
+      Product.find({ _id: { $in: productIds } }).select("title sku imageUrl"),
     ]);
     const productMap = new Map(
-      products.map((p) => [p._id, { id: p._id, title: p.title, sku: p.sku }]),
+      products.map((p) => [
+        p._id,
+        { id: p._id, title: p.title, sku: p.sku, imageUrl: p.imageUrl },
+      ]),
     );
 
     const items = rows.map((row) => {
