@@ -129,7 +129,7 @@ const productService = {
         sku,
         description: safePayload.description ?? null,
         price: safePayload.price ?? 0,
-        imageUrl: uploadedFile?.publicPath ?? null,
+        imageUrl: uploadedFile?.publicPath ?? safePayload.imageUrl ?? null,
         ownerId,
       });
 
@@ -466,6 +466,7 @@ const productService = {
           description: raw.description || undefined,
           price: raw.price === '' || raw.price == null ? 0 : raw.price,
           quantity: raw.quantity === '' || raw.quantity == null ? 0 : raw.quantity,
+          imageUrl: raw.imageUrl || undefined,
           assignUserId: raw.assignUserId || undefined,
         });
 
@@ -478,6 +479,7 @@ const productService = {
                 description: parsed.description,
                 price: parsed.price,
                 quantity: parsed.quantity,
+                imageUrl: parsed.imageUrl,
               }
             : parsed;
 

@@ -7,6 +7,7 @@ export const PRODUCT_IMPORT_HEADERS = [
   "description",
   "price",
   "quantity",
+  "imageUrl",
   "assignUserId",
 ];
 
@@ -35,6 +36,9 @@ const HEADER_ALIASES = {
   quantity: "quantity",
   qty: "quantity",
   stock: "quantity",
+  imageurl: "imageUrl",
+  image: "imageUrl",
+  imagepath: "imageUrl",
   assignuserid: "assignUserId",
   sellerid: "assignUserId",
   seller: "assignUserId",
@@ -86,6 +90,7 @@ const pickImportFields = (item, rowNumber) => {
   if (row.title == null && item?.name != null) row.title = item.name;
   if (row.quantity == null && item?.stock != null) row.quantity = item.stock;
   if (row.quantity == null && item?.qty != null) row.quantity = item.qty;
+  if (row.imageUrl == null && item?.image != null) row.imageUrl = item.image;
   if (row.assignUserId == null && item?.sellerId != null) {
     row.assignUserId = item.sellerId;
   }
@@ -208,6 +213,7 @@ export const mapProductToExportRow = (product) => ({
   description: product.description || "",
   price: product.price ?? 0,
   quantity: product.quantity ?? product.totalQuantity ?? 0,
+  imageUrl: product.imageUrl || "",
   assignUserId: "",
   ownerName: product.owner?.name || product.ownerName || "",
   createdAt: product.createdAt
