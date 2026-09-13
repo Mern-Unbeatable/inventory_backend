@@ -71,5 +71,9 @@ export const importProductRowSchema = z.object({
     emptyToUndefined,
     z.coerce.number().int().min(0).optional().default(0)
   ),
+  imageUrl: z.preprocess(
+    emptyToUndefined,
+    z.string().trim().max(2000).optional().nullable()
+  ),
   assignUserId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
 });
