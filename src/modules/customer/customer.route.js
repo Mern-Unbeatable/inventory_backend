@@ -7,6 +7,7 @@ import {
   createCustomerSchema,
   updateCustomerSchema,
   createPortalAccountSchema,
+  updatePortalPasswordSchema,
   customerIdParamSchema,
   listCustomersQuerySchema,
   listCustomerInvoicesQuerySchema,
@@ -73,6 +74,14 @@ router.post(
   authorize('ADMIN'),
   validate({ params: customerIdParamSchema, body: createPortalAccountSchema }),
   customerController.createPortalAccount
+);
+
+// Admin only: reset password on an existing portal login
+router.patch(
+  '/:id/portal-account/password',
+  authorize('ADMIN'),
+  validate({ params: customerIdParamSchema, body: updatePortalPasswordSchema }),
+  customerController.updatePortalPassword
 );
 
 export default router;

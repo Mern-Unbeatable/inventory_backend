@@ -54,6 +54,10 @@ export const createPortalAccountSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters'),
 });
 
+export const updatePortalPasswordSchema = z.object({
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+});
+
 export const customerIdParamSchema = z.object({ id: uuid });
 
 export const listCustomersQuerySchema = z.object({

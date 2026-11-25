@@ -42,6 +42,11 @@ const customerController = {
     const data = await customerService.createPortalAccount(req.params.id, req.body);
     return ApiResponse.created(res, data, 'Portal account created successfully');
   }),
+
+  updatePortalPassword: catchAsync(async (req, res) => {
+    const data = await customerService.updatePortalPassword(req.params.id, req.body);
+    return ApiResponse.success(res, data, 'Portal password updated successfully');
+  }),
 };
 
 export default customerController;

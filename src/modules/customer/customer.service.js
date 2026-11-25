@@ -1,5 +1,6 @@
 import customerRepository from './customer.repository.js';
 import { User } from '../../models/User.js';
+import { RefreshToken } from '../../models/RefreshToken.js';
 import ApiError from '../../utils/ApiError.js';
 import { hashPassword } from '../../utils/bcrypt.js';
 import {
@@ -212,6 +213,28 @@ const customerService = {
     }
 
     return customerRepository.linkPortalAccount(id, user._id);
+  },
+
+  /** Admin-only: set a new password on the linked CUSTOMER portal login. */
+  async updatePortalPassword(id, { password }) {
+    const customer = await customerRepository.findById(id);
+    if (!customer) {
+      throw ApiError.notFound('Customer not found');
+    }
+    if (!customer.userId) {
+      throw ApiError.badRequest('This customer has no portal account');
+    }
+
+    const user = await User.findById(customer.userId);
+    if (!user || user.role !== 'CUSTOMER') {
+      throw ApiError.notFound('Portal account not found');
+    }
+
+    user.password = await hashPassword(password);
+    await user.save();
+    await RefreshToken.deleteMany({ userId: user._id });
+
+    return { updated: true };
   },
 
   async resolveCountryIdForPortalUser(userId) {

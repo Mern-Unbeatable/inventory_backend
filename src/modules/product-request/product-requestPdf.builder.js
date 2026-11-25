@@ -4,7 +4,7 @@ import PDFDocument from 'pdfkit';
 import env from '../../config/env.js';
 
 const PAGE_MARGIN = 48;
-const FOOTER_RESERVE = 56;
+const FOOTER_RESERVE = 70;
 const COLORS = {
   ink: '#0f172a',
   muted: '#64748b',
@@ -23,15 +23,6 @@ const money = (value) =>
     currency: 'USD',
     minimumFractionDigits: 2,
   }).format(Number(value) || 0);
-
-const dateOnly = (value) => {
-  if (!value) return '—';
-  return new Date(value).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-};
 
 const dateTime = (value) => {
   if (!value) return '—';
@@ -84,73 +75,9 @@ const drawWrappingText = (doc, text, x, y, width, options = {}) => {
   return height;
 };
 
-const CELL_PAD_X = 6;
-const CELL_PAD_Y = 6;
-const TABLE_HEADER_HEIGHT = 22;
-const BODY_FONT_SIZE = 8;
-
-/** Column widths always sum to `contentWidth` so header/body share one grid. */
-const buildTableColumns = (contentWidth) => {
-  const sku = 95;
-  const qty = 40;
-  const unit = 85;
-  const total = 89;
-  const product = contentWidth - sku - qty - unit - total;
-
-  return [
-    { key: 'product', label: 'Product', width: product, align: 'left', wrap: true },
-    { key: 'sku', label: 'SKU', width: sku, align: 'left', wrap: false },
-    { key: 'qty', label: 'Qty', width: qty, align: 'right', wrap: false },
-    { key: 'unit', label: 'Unit Price', width: unit, align: 'right', wrap: false },
-    { key: 'total', label: 'Line Total', width: total, align: 'right', wrap: false },
-  ];
-};
-
-const getColumnStarts = (columns, startX) => {
-  let x = startX;
-  return columns.map((col) => {
-    const left = x;
-    x += col.width;
-    return left;
-  });
-};
-
-const calculateRowHeight = (doc, cells, columns, paddingY = CELL_PAD_Y) => {
-  let maxContent = 10;
-  doc.font('Helvetica').fontSize(BODY_FONT_SIZE);
-
-  columns.forEach((col) => {
-    const cellWidth = col.width - CELL_PAD_X * 2;
-    const value = cells[col.key] ?? '—';
-    if (col.wrap) {
-      const h = measureTextHeight(doc, value, cellWidth);
-      maxContent = Math.max(maxContent, h);
-    } else {
-      maxContent = Math.max(maxContent, 10);
-    }
-  });
-
-  return Math.ceil(maxContent + paddingY * 2);
-};
-
-const drawTableCell = (doc, { text, x, y, width, align, wrap, rowHeight, font = 'Helvetica' }) => {
-  const cellWidth = width - CELL_PAD_X * 2;
-  const innerX = x + CELL_PAD_X;
-  const contentHeight = wrap
-    ? measureTextHeight(doc, text, cellWidth)
-    : BODY_FONT_SIZE + 1;
-  const textY = y + Math.max(CELL_PAD_Y, (rowHeight - contentHeight) / 2);
-
-  doc.font(font).fontSize(BODY_FONT_SIZE);
-  if (wrap) {
-    drawWrappingText(doc, text, innerX, textY, cellWidth, { align });
-  } else {
-    drawSingleLineText(doc, text, innerX, textY, cellWidth, align);
-  }
-};
-
 /**
  * Builds a Product Request PDF (not an invoice) and pipes it to `outputStream`.
+ * Layout mirrors the invoice PDF: SKU under title, equal row padding, branded footer.
  */
 export const buildProductRequestPdf = ({
   customer,
@@ -204,11 +131,9 @@ export const buildProductRequestPdf = ({
         lineBreak: true,
       });
 
+    // Branding: address + email only (match invoice PDF).
     doc.font('Helvetica').fontSize(9).fillColor('#cbd5e1');
-    const companyLines = [
-      env.company.address,
-      [env.company.phone, env.company.email].filter(Boolean).join(' · '),
-    ].filter(Boolean);
+    const companyLines = [env.company.address, env.company.email].filter(Boolean);
     companyLines.forEach((line, index) => {
       drawSingleLineText(
         doc,
@@ -229,7 +154,14 @@ export const buildProductRequestPdf = ({
       'right'
     );
     doc.font('Helvetica').fontSize(9).fillColor('#cbd5e1');
-    drawSingleLineText(doc, 'Request List — Not an Invoice', PAGE_MARGIN, 54, contentWidth, 'right');
+    drawSingleLineText(
+      doc,
+      'Request List — Not an Invoice',
+      PAGE_MARGIN,
+      54,
+      contentWidth,
+      'right'
+    );
 
     y = 130;
 
@@ -237,7 +169,13 @@ export const buildProductRequestPdf = ({
     doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(11);
     drawSingleLineText(doc, 'Product Request', PAGE_MARGIN, y, contentWidth);
     doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted);
-    drawSingleLineText(doc, `Date: ${dateOnly(new Date())}`, PAGE_MARGIN, y + 16, contentWidth);
+    drawSingleLineText(
+      doc,
+      `Date: ${dateTime(new Date())}`,
+      PAGE_MARGIN,
+      y + 16,
+      contentWidth
+    );
     y += 34;
 
     doc.fillColor(COLORS.notice).font('Helvetica-Bold').fontSize(8);
@@ -247,8 +185,11 @@ export const buildProductRequestPdf = ({
     drawWrappingText(doc, disclaimer, PAGE_MARGIN, y, contentWidth);
     y += disclaimerHeight + 16;
 
-    // Customer card
-    const customerLines = [customer?.name || '—', customer?.email || null].filter(Boolean);
+    // Customer card — labeled fields
+    const customerLines = [
+      `Name: ${customer?.name || '—'}`,
+      customer?.email ? `Email: ${customer.email}` : null,
+    ].filter(Boolean);
     const cardHeight = Math.max(72, 26 + customerLines.length * 14 + 12);
     y = ensurePageSpace(doc, y, cardHeight + 16);
 
@@ -256,36 +197,72 @@ export const buildProductRequestPdf = ({
     doc.roundedRect(PAGE_MARGIN, y, contentWidth, cardHeight, 6).fill(COLORS.soft);
     doc.restore();
     doc.fillColor(COLORS.accent).font('Helvetica-Bold').fontSize(9);
-    drawSingleLineText(doc, 'REQUESTED BY', PAGE_MARGIN + 12, y + 10, contentWidth - 24);
+    drawSingleLineText(
+      doc,
+      'REQUESTED BY',
+      PAGE_MARGIN + 12,
+      y + 10,
+      contentWidth - 24
+    );
     doc.font('Helvetica').fontSize(9).fillColor(COLORS.ink);
     let lineY = y + 26;
     customerLines.forEach((line) => {
-      const h = drawWrappingText(doc, line, PAGE_MARGIN + 12, lineY, contentWidth - 24);
+      const h = drawWrappingText(
+        doc,
+        line,
+        PAGE_MARGIN + 12,
+        lineY,
+        contentWidth - 24
+      );
       lineY += h + 2;
     });
     y += cardHeight + 24;
 
-    // Table — column grid spans full content width (matches invoice PDF layout)
-    const columns = buildTableColumns(contentWidth);
-    const columnStarts = getColumnStarts(columns, PAGE_MARGIN);
+    // Table — SKU under product title (same as invoice PDF)
+    const columns = [
+      { key: 'product', label: 'Product', width: 286, align: 'left', wrap: true },
+      { key: 'qty', label: 'Qty', width: 36, align: 'right', wrap: false },
+      { key: 'unit', label: 'Unit Price', width: 84, align: 'right', wrap: false },
+      { key: 'total', label: 'Line Total', width: 93, align: 'right', wrap: false },
+    ];
+
+    const TABLE_HEADER_HEIGHT = 22;
+    const ROW_PAD_Y = 4;
+    const PRODUCT_TITLE_SIZE = 8;
+    const PRODUCT_SKU_SIZE = 7;
+    const PRODUCT_SKU_GAP = 1;
+    const textOpts = { lineGap: 0, lineBreak: true };
+
+    const measureProductCellHeight = (title, sku, cellWidth) => {
+      doc.font('Helvetica').fontSize(PRODUCT_TITLE_SIZE);
+      let height = measureTextHeight(doc, title || '—', cellWidth, textOpts);
+      if (sku) {
+        doc.font('Helvetica').fontSize(PRODUCT_SKU_SIZE);
+        height +=
+          PRODUCT_SKU_GAP +
+          measureTextHeight(doc, `SKU: ${sku}`, cellWidth, textOpts);
+      }
+      return height;
+    };
 
     const drawTableHeader = () => {
       doc.save();
-      doc.rect(PAGE_MARGIN, y, contentWidth, TABLE_HEADER_HEIGHT).fill(COLORS.accent);
+      doc
+        .rect(PAGE_MARGIN, y, contentWidth, TABLE_HEADER_HEIGHT)
+        .fill(COLORS.accent);
       doc.restore();
-
-      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(BODY_FONT_SIZE);
-      columns.forEach((col, index) => {
-        drawTableCell(doc, {
-          text: col.label,
-          x: columnStarts[index],
-          y,
-          width: col.width,
-          align: col.align,
-          wrap: false,
-          rowHeight: TABLE_HEADER_HEIGHT,
-          font: 'Helvetica-Bold',
-        });
+      let x = PAGE_MARGIN;
+      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(8);
+      columns.forEach((col) => {
+        drawSingleLineText(
+          doc,
+          col.label,
+          x + 6,
+          y + 7,
+          col.width - 12,
+          col.align
+        );
+        x += col.width;
       });
       y += TABLE_HEADER_HEIGHT;
     };
@@ -304,15 +281,30 @@ export const buildProductRequestPdf = ({
     drawTableHeader();
 
     (items || []).forEach((item, index) => {
+      const quantity = Number(item.quantity) || 0;
+      const unitPrice = Number(item.unitPrice) || 0;
+      const lineTotal =
+        item.lineTotal != null
+          ? Number(item.lineTotal) || 0
+          : Math.round(unitPrice * quantity * 100) / 100;
+
+      const productTitle = item.product?.title || '—';
+      const productSku = item.product?.sku || '';
       const cells = {
-        product: item.product?.title || '—',
-        sku: item.product?.sku || '—',
-        qty: String(item.quantity ?? 0),
-        unit: money(item.unitPrice),
-        total: money(item.lineTotal),
+        product: productTitle,
+        qty: String(quantity),
+        unit: money(unitPrice),
+        total: money(lineTotal),
       };
 
-      const rowHeight = calculateRowHeight(doc, cells, columns);
+      const productCol = columns[0];
+      const productCellWidth = productCol.width - 12;
+      const productContentHeight = measureProductCellHeight(
+        productTitle,
+        productSku,
+        productCellWidth
+      );
+      const rowHeight = Math.ceil(productContentHeight + ROW_PAD_Y * 2);
       ensureTableRowSpace(rowHeight);
 
       if (index % 2 === 0) {
@@ -321,17 +313,45 @@ export const buildProductRequestPdf = ({
         doc.restore();
       }
 
-      doc.fillColor(COLORS.ink);
-      columns.forEach((col, colIndex) => {
-        drawTableCell(doc, {
-          text: cells[col.key],
-          x: columnStarts[colIndex],
-          y,
-          width: col.width,
-          align: col.align,
-          wrap: col.wrap,
-          rowHeight,
-        });
+      let x = PAGE_MARGIN;
+      const textY = y + ROW_PAD_Y;
+
+      columns.forEach((col) => {
+        const cellWidth = col.width - 12;
+        const value = cells[col.key];
+
+        if (col.key === 'product') {
+          doc
+            .fillColor(COLORS.ink)
+            .font('Helvetica')
+            .fontSize(PRODUCT_TITLE_SIZE);
+          const titleHeight = drawWrappingText(
+            doc,
+            productTitle,
+            x + 6,
+            textY,
+            cellWidth,
+            { align: col.align, ...textOpts }
+          );
+          if (productSku) {
+            doc
+              .fillColor(COLORS.muted)
+              .font('Helvetica')
+              .fontSize(PRODUCT_SKU_SIZE);
+            drawWrappingText(
+              doc,
+              `SKU: ${productSku}`,
+              x + 6,
+              textY + titleHeight + PRODUCT_SKU_GAP,
+              cellWidth,
+              { align: col.align, ...textOpts }
+            );
+          }
+        } else {
+          doc.fillColor(COLORS.ink).font('Helvetica').fontSize(8);
+          drawSingleLineText(doc, value, x + 6, textY, cellWidth, col.align);
+        }
+        x += col.width;
       });
 
       y += rowHeight;
@@ -365,9 +385,10 @@ export const buildProductRequestPdf = ({
 
     const footerText =
       env.company.footer || 'Thank you for your interest in our products.';
+    const websiteUrl = env.company.website || '';
     const generatedLine = `Generated: ${dateTime(new Date())}   ·   Generated by: ${
       generatedBy || 'Customer'
-    }`;
+    }   ·   ${footerText}`;
 
     const range = doc.bufferedPageRange();
     for (let i = 0; i < range.count; i += 1) {
@@ -380,8 +401,22 @@ export const buildProductRequestPdf = ({
         .lineWidth(1)
         .stroke();
       doc.font('Helvetica').fontSize(8).fillColor(COLORS.muted);
-      drawSingleLineText(doc, generatedLine, PAGE_MARGIN, footerTop + 10, contentWidth);
-      drawSingleLineText(doc, footerText, PAGE_MARGIN, footerTop + 24, contentWidth);
+      drawSingleLineText(
+        doc,
+        generatedLine,
+        PAGE_MARGIN,
+        footerTop + 10,
+        contentWidth
+      );
+      if (websiteUrl) {
+        drawSingleLineText(
+          doc,
+          websiteUrl,
+          PAGE_MARGIN,
+          footerTop + 24,
+          contentWidth
+        );
+      }
     }
 
     doc.on('end', resolve);
