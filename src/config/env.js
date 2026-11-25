@@ -60,10 +60,12 @@ const env = {
       ? "r2"
       : "local"),
   company: {
-    name: process.env.COMPANY_NAME || "Inventory Management",
+    name: process.env.COMPANY_NAME || "K Glow Skin Care",
     address: process.env.COMPANY_ADDRESS || "",
     phone: process.env.COMPANY_PHONE || "",
     email: process.env.COMPANY_EMAIL || "",
+    website:
+      process.env.COMPANY_WEBSITE || "https://kglowskincarekorea.com/",
     logoPath: process.env.COMPANY_LOGO_PATH || "",
     footer: process.env.COMPANY_FOOTER || "Thank you for your business.",
   },

@@ -4,7 +4,7 @@ import PDFDocument from 'pdfkit';
 import env from '../../config/env.js';
 
 const PAGE_MARGIN = 48;
-const FOOTER_RESERVE = 56;
+const FOOTER_RESERVE = 70;
 const COLORS = {
   ink: '#0f172a',
   muted: '#64748b',
@@ -83,6 +83,7 @@ const measureTextHeight = (doc, text, width, options = {}) => {
   return doc.heightOfString(value, {
     width,
     lineBreak: true,
+    lineGap: 0,
     ...options,
   });
 };
@@ -111,6 +112,7 @@ const drawWrappingText = (doc, text, x, y, width, options = {}) => {
   doc.text(value, x, y, {
     width,
     lineBreak: true,
+    lineGap: 0,
     ...options,
   });
   return height;
@@ -205,10 +207,10 @@ export const buildInvoicePdf = ({
 
     doc.font('Helvetica').fontSize(9).fillColor('#cbd5e1');
 
-    const companyLines = [
-      env.company.address,
-      [env.company.phone, env.company.email].filter(Boolean).join(' · '),
-    ].filter(Boolean);
+    // Branding: company name + address + email only (no phone on PDF).
+    const companyLines = [env.company.address, env.company.email].filter(
+      Boolean
+    );
 
     companyLines.forEach((line, index) => {
       drawSingleLineText(
@@ -232,43 +234,63 @@ export const buildInvoicePdf = ({
     doc.fillColor(COLORS.ink).font('Helvetica-Bold').fontSize(11);
     drawSingleLineText(doc, invoice.invoiceNumber, PAGE_MARGIN, y, contentWidth);
 
+    // Two aligned meta columns: left = Status/Created, right = Payment/Confirmed
+    const metaColGap = 24;
+    const metaColWidth = (contentWidth - metaColGap) / 2;
+    const metaLeftX = PAGE_MARGIN;
+    const metaRightX = PAGE_MARGIN + metaColWidth + metaColGap;
+    const metaRow1Y = y + 16;
+    const metaRow2Y = y + 30;
+
     doc.font('Helvetica').fontSize(9).fillColor(COLORS.muted);
     drawSingleLineText(
       doc,
-      `Status: ${labelize(invoice.status)}   ·   Payment: ${labelize(invoice.paymentStatus)}`,
-      PAGE_MARGIN,
-      y + 16,
-      contentWidth
+      `Status: ${labelize(invoice.status)}`,
+      metaLeftX,
+      metaRow1Y,
+      metaColWidth
     );
     drawSingleLineText(
       doc,
-      `Created: ${dateOnly(invoice.createdAt)}${
-        invoice.confirmedAt
-          ? `   ·   Confirmed: ${dateOnly(invoice.confirmedAt)}`
-          : ''
-      }`,
-      PAGE_MARGIN,
-      y + 30,
-      contentWidth
+      `Payment: ${labelize(invoice.paymentStatus)}`,
+      metaRightX,
+      metaRow1Y,
+      metaColWidth
     );
+    drawSingleLineText(
+      doc,
+      `Created: ${dateTime(invoice.createdAt)}`,
+      metaLeftX,
+      metaRow2Y,
+      metaColWidth
+    );
+    if (invoice.confirmedAt) {
+      drawSingleLineText(
+        doc,
+        `Confirmed: ${dateTime(invoice.confirmedAt)}`,
+        metaRightX,
+        metaRow2Y,
+        metaColWidth
+      );
+    }
 
     y += 58;
 
     // ── Seller / Customer cards (dynamic height) ─────────────────
     const colWidth = (contentWidth - 16) / 2;
     const sellerLines = [
-      seller?.name || '—',
+      `Name: ${seller?.name || '—'}`,
+      seller?.email ? `Email: ${seller.email}` : null,
       seller?.branch?.name ? `Branch: ${seller.branch.name}` : null,
       seller?.branch?.country?.name
         ? `Country: ${seller.branch.country.name}`
         : null,
-      seller?.email || null,
     ];
     const customerLines = [
-      customer?.name || '—',
-      customer?.email || null,
-      customer?.phone || null,
-      customer?.address || null,
+      `Name: ${customer?.name || '—'}`,
+      customer?.email ? `Email: ${customer.email}` : null,
+      customer?.phone ? `Phone: ${customer.phone}` : null,
+      customer?.address ? `Address: ${customer.address}` : null,
     ];
 
     const cardHeight = Math.max(
@@ -301,16 +323,34 @@ export const buildInvoicePdf = ({
     y += cardHeight + 24;
 
     // ── Line items table ─────────────────────────────────────────
-    // Wider SKU column so typical SKUs stay on one line; product may wrap.
+    // SKU sits under the product title (no separate SKU column).
+    // Widths sum to contentWidth (~499 on A4 with 48px margins).
     const columns = [
-      { key: 'product', label: 'Product', width: 190, align: 'left', wrap: true },
-      { key: 'sku', label: 'SKU', width: 95, align: 'left', wrap: false },
-      { key: 'qty', label: 'Qty', width: 40, align: 'right', wrap: false },
-      { key: 'unit', label: 'Unit Price', width: 85, align: 'right', wrap: false },
-      { key: 'total', label: 'Line Total', width: 89, align: 'right', wrap: false },
+      { key: 'product', label: 'Product', width: 286, align: 'left', wrap: true },
+      { key: 'qty', label: 'Qty', width: 36, align: 'right', wrap: false },
+      { key: 'unit', label: 'Unit Price', width: 84, align: 'right', wrap: false },
+      { key: 'total', label: 'Line Total', width: 93, align: 'right', wrap: false },
     ];
 
     const TABLE_HEADER_HEIGHT = 22;
+    // Equal top/bottom padding inside each item row.
+    const ROW_PAD_Y = 4;
+    const PRODUCT_TITLE_SIZE = 8;
+    const PRODUCT_SKU_SIZE = 7;
+    const PRODUCT_SKU_GAP = 1;
+    const textOpts = { lineGap: 0, lineBreak: true };
+
+    const measureProductCellHeight = (title, sku, cellWidth) => {
+      doc.font('Helvetica').fontSize(PRODUCT_TITLE_SIZE);
+      let height = measureTextHeight(doc, title || '—', cellWidth, textOpts);
+      if (sku) {
+        doc.font('Helvetica').fontSize(PRODUCT_SKU_SIZE);
+        height +=
+          PRODUCT_SKU_GAP +
+          measureTextHeight(doc, `SKU: ${sku}`, cellWidth, textOpts);
+      }
+      return height;
+    };
 
     const drawTableHeader = () => {
       doc.save();
@@ -341,6 +381,8 @@ export const buildInvoicePdf = ({
     drawTableHeader();
 
     const items = invoice.items || [];
+    let computedSubtotal = 0;
+
     if (!items.length) {
       y = ensurePageSpace(doc, y, 28);
       doc.fillColor(COLORS.muted).font('Helvetica').fontSize(9);
@@ -354,15 +396,30 @@ export const buildInvoicePdf = ({
       y += 28;
     } else {
       items.forEach((item, index) => {
+        const quantity = Number(item.quantity) || 0;
+        const unitPrice = Number(item.unitPrice) || 0;
+        // Always derive line total from Price × Quantity for the PDF.
+        const lineTotal = Math.round(unitPrice * quantity * 100) / 100;
+        computedSubtotal += lineTotal;
+
+        const productTitle = item.product?.title || '—';
+        const productSku = item.product?.sku || '';
         const cells = {
-          product: item.product?.title || '—',
-          sku: item.product?.sku || '—',
-          qty: String(item.quantity ?? 0),
-          unit: money(item.unitPrice),
-          total: money(item.lineTotal),
+          product: productTitle,
+          qty: String(quantity),
+          unit: money(unitPrice),
+          total: money(lineTotal),
         };
 
-        const rowHeight = calculateRowHeight(doc, cells, columns);
+        const productCol = columns[0];
+        const productCellWidth = productCol.width - 12;
+        const productContentHeight = measureProductCellHeight(
+          productTitle,
+          productSku,
+          productCellWidth
+        );
+        // Same padding above the title and below the SKU.
+        const rowHeight = Math.ceil(productContentHeight + ROW_PAD_Y * 2);
         ensureTableRowSpace(rowHeight);
 
         if (index % 2 === 0) {
@@ -372,18 +429,47 @@ export const buildInvoicePdf = ({
         }
 
         let x = PAGE_MARGIN;
-        const textY = y + 6;
-        doc.fillColor(COLORS.ink).font('Helvetica').fontSize(8);
+        const textY = y + ROW_PAD_Y;
 
         columns.forEach((col) => {
           const cellWidth = col.width - 12;
           const value = cells[col.key];
-          if (col.wrap) {
-            drawWrappingText(doc, value, x + 6, textY, cellWidth, {
-              align: col.align,
-            });
+
+          if (col.key === 'product') {
+            doc.fillColor(COLORS.ink).font('Helvetica').fontSize(PRODUCT_TITLE_SIZE);
+            const titleHeight = drawWrappingText(
+              doc,
+              productTitle,
+              x + 6,
+              textY,
+              cellWidth,
+              { align: col.align, ...textOpts }
+            );
+            if (productSku) {
+              doc
+                .fillColor(COLORS.muted)
+                .font('Helvetica')
+                .fontSize(PRODUCT_SKU_SIZE);
+              drawWrappingText(
+                doc,
+                `SKU: ${productSku}`,
+                x + 6,
+                textY + titleHeight + PRODUCT_SKU_GAP,
+                cellWidth,
+                { align: col.align, ...textOpts }
+              );
+            }
           } else {
-            drawSingleLineText(doc, value, x + 6, textY, cellWidth, col.align);
+            // Align numeric columns with the product title baseline area.
+            doc.fillColor(COLORS.ink).font('Helvetica').fontSize(8);
+            drawSingleLineText(
+              doc,
+              value,
+              x + 6,
+              textY,
+              cellWidth,
+              col.align
+            );
           }
           x += col.width;
         });
@@ -400,12 +486,22 @@ export const buildInvoicePdf = ({
       .stroke();
     y += 16;
 
-    // ── Summary (only break page if the block itself cannot fit) ─
+    // ── Summary: Subtotal / Grand Total from Price × Quantity ────
+    const subtotal =
+      items.length > 0
+        ? Math.round(computedSubtotal * 100) / 100
+        : Number(invoice.totalAmount) || 0;
+    const paidAmount = Number(invoice.paidAmount) || 0;
+    const dueAmount = Math.max(
+      Math.round((subtotal - paidAmount) * 100) / 100,
+      0
+    );
+
     const summaryRows = [
-      ['Subtotal', money(invoice.totalAmount)],
-      ['Total Amount', money(invoice.totalAmount)],
-      ['Paid Amount', money(invoice.paidAmount)],
-      ['Due Amount', money(invoice.dueAmount)],
+      ['Subtotal', money(subtotal)],
+      ['Grand Total', money(subtotal)],
+      ['Paid Amount', money(paidAmount)],
+      ['Due Amount', money(dueAmount)],
     ];
     const summaryHeight = summaryRows.length * 16 + 8;
     y = ensurePageSpace(doc, y, summaryHeight);
@@ -413,9 +509,9 @@ export const buildInvoicePdf = ({
     const summaryX = PAGE_MARGIN + contentWidth - 220;
     summaryRows.forEach(([label, value], index) => {
       const rowY = y + index * 16;
-      const isDue = label === 'Due Amount';
+      const emphasize = label === 'Grand Total' || label === 'Due Amount';
       doc
-        .font(isDue ? 'Helvetica-Bold' : 'Helvetica')
+        .font(emphasize ? 'Helvetica-Bold' : 'Helvetica')
         .fontSize(9)
         .fillColor(COLORS.muted);
       drawSingleLineText(doc, label, summaryX, rowY, 110);
@@ -541,9 +637,10 @@ export const buildInvoicePdf = ({
     // Content already stays above FOOTER_RESERVE via checkRemainingPageSpace.
     // Do not ensurePageSpace(footer) here — that created empty trailing pages.
     const footerText = env.company.footer || 'Thank you for your business.';
+    const websiteUrl = env.company.website || '';
     const generatedLine = `Generated: ${dateTime(new Date())}   ·   Generated by: ${
       generatedBy || 'System'
-    }`;
+    }   ·   ${footerText}`;
 
     const range = doc.bufferedPageRange();
     for (let i = 0; i < range.count; i += 1) {
@@ -559,7 +656,9 @@ export const buildInvoicePdf = ({
 
       doc.font('Helvetica').fontSize(8).fillColor(COLORS.muted);
       drawSingleLineText(doc, generatedLine, PAGE_MARGIN, footerTop + 10, contentWidth);
-      drawSingleLineText(doc, footerText, PAGE_MARGIN, footerTop + 24, contentWidth);
+      if (websiteUrl) {
+        drawSingleLineText(doc, websiteUrl, PAGE_MARGIN, footerTop + 24, contentWidth);
+      }
     }
 
     doc.on('end', resolve);
